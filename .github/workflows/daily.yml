@@ -2,7 +2,9 @@ name: Yahoo Lineup Agent
 
 "on":
   schedule:
-    - cron: "*/30 * * * *"
+    # Poll every 30 minutes during the broad local daytime window.
+    # GitHub cron is UTC, so a local-time guard below handles DST accurately.
+    - cron: "*/30 15-23,0-3 * * *"
   workflow_dispatch:
     inputs:
       apply_changes:
@@ -62,8 +64,21 @@ jobs:
             echo "YAHOO_LINEUP_DATE=$(date +%F)" >> "$GITHUB_ENV"
           fi
 
+      - name: Evaluate active window
+        id: active_window
+        if: ${{ github.event_name != 'workflow_dispatch' }}
+        shell: bash
+        run: |
+          LOCAL_HOUR=$(date +%H)
+          if [ "$LOCAL_HOUR" -lt 8 ] || [ "$LOCAL_HOUR" -ge 21 ]; then
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping scheduled run outside local active window (8:00 AM-8:59 PM)."
+          else
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Dry run lineup automation
-        if: ${{ github.event_name != 'workflow_dispatch' || !inputs.apply_changes }}
+        if: ${{ (github.event_name == 'workflow_dispatch' || steps.active_window.outputs.should_run == 'true') && (github.event_name != 'workflow_dispatch' || !inputs.apply_changes) }}
         run: >
           python automation.py
           --email
