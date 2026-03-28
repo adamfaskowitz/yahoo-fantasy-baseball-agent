@@ -1,0 +1,8 @@
+.env
+.secrets/
+__pycache__/
+.ipynb_checkpoints/
+*.pyc
+
+# Local notebooks/checkpoints with captured secrets or exploratory outputs.
+Yahoo Lineup Optimizer.ipynb

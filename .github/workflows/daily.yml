@@ -1,0 +1,76 @@
+name: Yahoo Lineup Agent
+
+"on":
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+    inputs:
+      apply_changes:
+        description: "Apply roster changes to Yahoo"
+        required: false
+        default: false
+        type: boolean
+      lineup_date:
+        description: "Roster date in YYYY-MM-DD format; defaults to today in America/Los_Angeles"
+        required: false
+        type: string
+      force_run:
+        description: "Ignore time-window gating and run immediately"
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  lineup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      TZ: America/Los_Angeles
+      YAHOO_CLIENT_ID: ${{ secrets.YAHOO_CLIENT_ID }}
+      YAHOO_CLIENT_SECRET: ${{ secrets.YAHOO_CLIENT_SECRET }}
+      YAHOO_REFRESH_TOKEN: ${{ secrets.YAHOO_REFRESH_TOKEN }}
+      YAHOO_TEAM_KEY: ${{ secrets.YAHOO_TEAM_KEY }}
+      YAHOO_REDIRECT_URI: oob
+      YAHOO_OPEN_AUTH_BROWSER: "false"
+      SMTP_HOST: ${{ secrets.SMTP_HOST }}
+      SMTP_PORT: ${{ secrets.SMTP_PORT }}
+      SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+      SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+      SMTP_FROM: ${{ secrets.SMTP_FROM }}
+      SMTP_TO: ${{ secrets.SMTP_TO }}
+      SMTP_USE_TLS: "true"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Resolve lineup date
+        shell: bash
+        run: |
+          if [ -n "${{ github.event.inputs.lineup_date }}" ]; then
+            echo "YAHOO_LINEUP_DATE=${{ github.event.inputs.lineup_date }}" >> "$GITHUB_ENV"
+          else
+            echo "YAHOO_LINEUP_DATE=$(date +%F)" >> "$GITHUB_ENV"
+          fi
+
+      - name: Dry run lineup automation
+        if: ${{ github.event_name != 'workflow_dispatch' || !inputs.apply_changes }}
+        run: >
+          python automation.py
+          --email
+          ${{ github.event_name == 'workflow_dispatch' && inputs.force_run && '--force' || '' }}
+
+      - name: Apply lineup changes
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.apply_changes }}
+        run: >
+          python automation.py
+          --apply
+          --email
+          ${{ inputs.force_run && '--force' || '' }}
