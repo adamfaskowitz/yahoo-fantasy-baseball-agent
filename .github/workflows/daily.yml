@@ -78,16 +78,16 @@ jobs:
           fi
 
       - name: Dry run lineup automation
-        if: ${{ (github.event_name == 'workflow_dispatch' || steps.active_window.outputs.should_run == 'true') && (github.event_name != 'workflow_dispatch' || !inputs.apply_changes) }}
+        if: ${{ github.event_name == 'workflow_dispatch' && !inputs.apply_changes }}
         run: >
           python automation.py
           --email
-          ${{ github.event_name == 'workflow_dispatch' && inputs.force_run && '--force' || '' }}
+          ${{ inputs.force_run && '--force' || '' }}
 
       - name: Apply lineup changes
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.apply_changes }}
+        if: ${{ (github.event_name == 'workflow_dispatch' && inputs.apply_changes) || (github.event_name != 'workflow_dispatch' && steps.active_window.outputs.should_run == 'true') }}
         run: >
           python automation.py
           --apply
           --email
-          ${{ inputs.force_run && '--force' || '' }}
+          ${{ github.event_name == 'workflow_dispatch' && inputs.force_run && '--force' || '' }}
