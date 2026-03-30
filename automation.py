@@ -107,10 +107,9 @@ def main() -> int:
     print()
     print(render_roster(roster))
 
-    applied = False
+    applied = args.apply
     if args.apply and plan.has_changes:
         client.set_lineup(lineup_date=roster.lineup_date or config.lineup_date, moves=plan.moves)
-        applied = True
         raw_roster = client.get_team_roster(config.lineup_date)
         clear_caches()
         roster = enrich_roster_with_starting_status(
