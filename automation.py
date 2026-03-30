@@ -119,7 +119,9 @@ def main() -> int:
             ignore_locks=False,
         )
 
-    if args.email:
+    should_send_email = args.email and (plan.has_changes or args.force)
+
+    if should_send_email:
         email_config = load_email_config()
         if email_config is None:
             raise RuntimeError("Email requested, but SMTP_* environment variables are incomplete.")
@@ -145,6 +147,8 @@ def main() -> int:
         )
         send_email_report(config=email_config, subject=subject, body=body, html_body=html_body)
         print("Email report sent.")
+    elif args.email:
+        print("No email sent because no moves were proposed and this was not a forced/manual run.")
 
     return 0
 
