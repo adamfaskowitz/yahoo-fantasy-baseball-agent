@@ -2,9 +2,10 @@ name: Yahoo Lineup Agent
 
 "on":
   schedule:
-    # Poll every 30 minutes during the broad local daytime window.
+    # Poll once an hour at :30, which aligns with the "30 minutes before the
+    # unique starting hour" trigger windows computed in automation.py.
     # GitHub cron is UTC, so a local-time guard below handles DST accurately.
-    - cron: "*/30 15-23,0-3 * * *"
+    - cron: "30 15-23,0-3 * * *"
   workflow_dispatch:
     inputs:
       apply_changes:
