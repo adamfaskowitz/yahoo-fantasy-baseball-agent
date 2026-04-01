@@ -278,9 +278,11 @@ def optimize_lineup(
     roster: RosterSnapshot,
     projections: dict[str, float] | None = None,
     matchup_adjustments: dict[str, int] | None = None,
+    frozen_slots: set[str] | None = None,
 ) -> LineupPlan:
     projections = projections or {}
     matchup_adjustments = matchup_adjustments or {}
+    frozen_slots = frozen_slots or set()
     warnings: list[str] = []
     moves: list[PlannedMove] = []
 
@@ -307,6 +309,8 @@ def optimize_lineup(
 
     available_bench = bench_players[:]
     for active_player in active_players:
+        if (active_player.selected_position or "") in frozen_slots:
+            continue
         if not player_should_be_replaced(active_player):
             continue
 
@@ -347,6 +351,8 @@ def optimize_lineup(
         if is_bench_position(player.selected_position)
     ]
     for open_slot in open_active_slots(roster_after_replacements):
+        if open_slot in frozen_slots:
+            continue
         replacement = choose_replacement(
             position=open_slot,
             active_player=None,
@@ -367,10 +373,19 @@ def optimize_lineup(
         )
 
     roster_after_open_slots = apply_plan_to_roster(roster, LineupPlan(moves=moves, warnings=[]))
-    moves.extend(compute_global_hitter_upgrade_moves(roster_after_open_slots, projections, matchup_adjustments))
+    moves.extend(
+        compute_global_hitter_upgrade_moves(
+            roster_after_open_slots,
+            projections,
+            matchup_adjustments,
+            frozen_slots,
+        )
+    )
 
     final_roster = apply_plan_to_roster(roster, LineupPlan(moves=moves, warnings=[]))
     for player in final_roster.players:
+        if (player.selected_position or "") in frozen_slots:
+            continue
         warning = unresolved_warning(player)
         if warning:
             warnings.append(warning)
@@ -483,12 +498,15 @@ def compute_global_hitter_upgrade_moves(
     roster: RosterSnapshot,
     projections: dict[str, float],
     matchup_adjustments: dict[str, int] | None = None,
+    frozen_slots: set[str] | None = None,
 ) -> list[PlannedMove]:
     matchup_adjustments = matchup_adjustments or {}
+    frozen_slots = frozen_slots or set()
     active_slots = [
         (player.selected_position or "", index)
         for index, player in enumerate(roster.players)
         if not is_bench_position(player.selected_position)
+        and (player.selected_position or "") not in frozen_slots
         and not player.is_locked
         and (player.position_type or "").upper() == "B"
         and hitter_can_be_globally_ranked(player)
@@ -503,6 +521,7 @@ def compute_global_hitter_upgrade_moves(
         and (
             (
                 not is_bench_position(player.selected_position)
+                and (player.selected_position or "") not in frozen_slots
                 and (player.position_type or "").upper() == "B"
                 and hitter_can_be_globally_ranked(player)
             )
@@ -593,6 +612,7 @@ def compute_global_hitter_upgrade_moves(
         player.player_key
         for player in roster.players
         if not is_bench_position(player.selected_position)
+        and (player.selected_position or "") not in frozen_slots
         and not player.is_locked
         and (player.position_type or "").upper() == "B"
         and hitter_can_be_globally_ranked(player)

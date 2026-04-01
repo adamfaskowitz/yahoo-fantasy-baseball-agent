@@ -4,6 +4,7 @@ import argparse
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from automation_state import detect_manual_override_slots, load_state, save_state, update_state_for_lineup
 from config import load_config
 from lineup import optimize_lineup, render_plan, render_roster
 from mlb_lineups import clear_caches, enrich_roster_with_starting_status, get_schedule_for_date
@@ -100,7 +101,12 @@ def main() -> int:
         verbose=args.verbose,
         ignore_locks=False,
     )
-    plan = optimize_lineup(roster)
+    state = load_state()
+    frozen_slots = detect_manual_override_slots(state, config.lineup_date, roster)
+    if frozen_slots:
+        frozen_label = ", ".join(sorted(frozen_slots))
+        print(f"Respecting manual overrides in slots: {frozen_label}")
+    plan = optimize_lineup(roster, frozen_slots=frozen_slots)
 
     print(f"Triggered run for {trigger_label}")
     print(render_plan(plan))
@@ -118,6 +124,15 @@ def main() -> int:
             verbose=False,
             ignore_locks=False,
         )
+
+    if args.apply:
+        state = update_state_for_lineup(
+            state,
+            config.lineup_date,
+            roster,
+            frozen_slots=frozen_slots,
+        )
+        save_state(state)
 
     should_send_email = args.email and (plan.has_changes or args.force)
 
