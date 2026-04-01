@@ -61,8 +61,16 @@ jobs:
         run: |
           if [ -n "${{ github.event.inputs.lineup_date }}" ]; then
             echo "YAHOO_LINEUP_DATE=${{ github.event.inputs.lineup_date }}" >> "$GITHUB_ENV"
+            echo "FORCE_RUN=false" >> "$GITHUB_ENV"
           else
-            echo "YAHOO_LINEUP_DATE=$(date +%F)" >> "$GITHUB_ENV"
+            LOCAL_HOUR=$(date +%H)
+            if [ "${{ github.event_name }}" != "workflow_dispatch" ] && [ "$LOCAL_HOUR" -eq 20 ]; then
+              echo "YAHOO_LINEUP_DATE=$(date -d tomorrow +%F)" >> "$GITHUB_ENV"
+              echo "FORCE_RUN=true" >> "$GITHUB_ENV"
+            else
+              echo "YAHOO_LINEUP_DATE=$(date +%F)" >> "$GITHUB_ENV"
+              echo "FORCE_RUN=false" >> "$GITHUB_ENV"
+            fi
           fi
 
       - name: Evaluate active window
@@ -83,7 +91,7 @@ jobs:
         run: >
           python automation.py
           --email
-          ${{ inputs.force_run && '--force' || '' }}
+          ${{ (inputs.force_run || env.FORCE_RUN == 'true') && '--force' || '' }}
 
       - name: Apply lineup changes
         if: ${{ (github.event_name == 'workflow_dispatch' && inputs.apply_changes) || (github.event_name != 'workflow_dispatch' && steps.active_window.outputs.should_run == 'true') }}
@@ -91,4 +99,4 @@ jobs:
           python automation.py
           --apply
           --email
-          ${{ github.event_name == 'workflow_dispatch' && inputs.force_run && '--force' || '' }}
+          ${{ ((github.event_name == 'workflow_dispatch' && inputs.force_run) || env.FORCE_RUN == 'true') && '--force' || '' }}
