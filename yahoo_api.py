@@ -9,7 +9,7 @@ import requests
 from auth import load_token_file, refresh_access_token, save_token_file
 from config import AppConfig
 from lineup import DEFAULT_SLOT_LIMITS
-from models import PlannedMove, Player, RosterSnapshot
+from models import MatchupCategory, MatchupCategoryDelta, MatchupSnapshot, PlannedMove, Player, RosterSnapshot
 from utils import find_child_text, local_name
 
 BASE_URL = "https://fantasysports.yahooapis.com/fantasy/v2"
@@ -21,6 +21,9 @@ class YahooFantasyClient:
         self.session = requests.Session()
         self._player_percent_started_cache: dict[str, int | None] = {}
         self._player_percent_owned_cache: dict[str, int | None] = {}
+        self._player_average_pick_cache: dict[str, float | None] = {}
+        self._player_actual_rank_last_week_cache: dict[str, int | None] = {}
+        self._league_stat_categories_cache: dict[str, dict] | None = None
         self.token = self._load_or_refresh_token()
         self.session.headers.update(
             {
@@ -71,12 +74,44 @@ class YahooFantasyClient:
         )
         response.raise_for_status()
 
+    def get_league_stat_categories(self) -> dict[str, dict]:
+        if self._league_stat_categories_cache is not None:
+            return self._league_stat_categories_cache
+        league_key = ".".join(self.config.yahoo_team_key.split(".")[:3])
+        response = self.session.get(
+            f"{BASE_URL}/league/{league_key}/settings",
+            timeout=30,
+        )
+        response.raise_for_status()
+        self._league_stat_categories_cache = parse_league_stat_categories(response.text)
+        return self._league_stat_categories_cache
+
+    def get_current_matchup(self) -> MatchupSnapshot | None:
+        response = self.session.get(
+            f"{BASE_URL}/team/{self.config.yahoo_team_key}/matchups;weeks=current",
+            timeout=30,
+        )
+        response.raise_for_status()
+        stat_categories = self.get_league_stat_categories()
+        return parse_current_matchup_xml(response.text, self.config.yahoo_team_key, stat_categories)
+
+    def get_current_matchup_deltas(self) -> dict[str, MatchupCategoryDelta]:
+        matchup = self.get_current_matchup()
+        if matchup is None:
+            return {}
+        return build_matchup_delta_map(matchup)
+
     def _populate_player_yahoo_metrics(self, roster: RosterSnapshot) -> RosterSnapshot:
+        actual_rank_last_week = self.get_actual_rank_last_week_map(
+            [player.player_key for player in roster.players]
+        )
         players = []
         for player in roster.players:
             players.append(
                 replace(
                     player,
+                    yahoo_average_pick=self.get_player_average_pick(player.player_key),
+                    yahoo_actual_rank_last_week=actual_rank_last_week.get(player.player_key),
                     yahoo_percent_started=self.get_player_percent_started(player.player_key),
                     yahoo_percent_owned=self.get_player_percent_owned(player.player_key),
                 )
@@ -93,6 +128,19 @@ class YahooFantasyClient:
             self._player_percent_owned_cache[player_key] = self._fetch_player_metric(player_key, "percent_owned")
         return self._player_percent_owned_cache[player_key]
 
+    def get_player_average_pick(self, player_key: str) -> float | None:
+        if player_key not in self._player_average_pick_cache:
+            self._player_average_pick_cache[player_key] = self._fetch_player_average_pick(player_key)
+        return self._player_average_pick_cache[player_key]
+
+    def get_actual_rank_last_week_map(self, player_keys: list[str]) -> dict[str, int | None]:
+        missing_keys = [player_key for player_key in player_keys if player_key not in self._player_actual_rank_last_week_cache]
+        if missing_keys:
+            fetched = self._fetch_actual_rank_last_week_map(missing_keys)
+            for player_key in missing_keys:
+                self._player_actual_rank_last_week_cache[player_key] = fetched.get(player_key)
+        return {player_key: self._player_actual_rank_last_week_cache.get(player_key) for player_key in player_keys}
+
     def _fetch_player_metric(self, player_key: str, resource: str) -> int | None:
         response = self.session.get(
             f"{BASE_URL}/player/{player_key}/{resource}",
@@ -101,6 +149,28 @@ class YahooFantasyClient:
         if response.status_code >= 400:
             return None
         return parse_metric_value(response.text, resource)
+
+    def _fetch_player_average_pick(self, player_key: str) -> float | None:
+        response = self.session.get(
+            f"{BASE_URL}/player/{player_key}/draft_analysis",
+            timeout=30,
+        )
+        if response.status_code >= 400:
+            return None
+        return parse_average_pick(response.text)
+
+    def _fetch_actual_rank_last_week_map(self, player_keys: list[str]) -> dict[str, int | None]:
+        if not player_keys:
+            return {}
+        team_key_parts = self.config.yahoo_team_key.split(".")
+        league_key = ".".join(team_key_parts[:3])
+        response = self.session.get(
+            f"{BASE_URL}/league/{league_key}/players;player_keys={','.join(player_keys)};sort=AR;sort_type=lastweek",
+            timeout=30,
+        )
+        if response.status_code >= 400:
+            return {}
+        return parse_player_order_map(response.text)
 
 
 def parse_roster_xml(xml_text: str) -> RosterSnapshot:
@@ -173,6 +243,8 @@ def parse_player(player_node: ET.Element) -> Player:
         status=status,
         position_type=position_type,
         yahoo_o_rank=yahoo_o_rank,
+        yahoo_average_pick=None,
+        yahoo_actual_rank_last_week=None,
         yahoo_percent_started=None,
         yahoo_percent_owned=None,
         is_starting_today=is_starting_today,
@@ -225,6 +297,230 @@ def parse_metric_value(xml_text: str, metric_name: str) -> int | None:
     if value and value.isdigit():
         return int(value)
     return None
+
+
+def parse_average_pick(xml_text: str) -> float | None:
+    root = ET.fromstring(xml_text)
+    draft_analysis_node = first_descendant(root, "draft_analysis")
+    if draft_analysis_node is None:
+        return None
+    value = find_child_text(draft_analysis_node, "average_pick")
+    if not value:
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        return None
+
+
+def parse_player_order_map(xml_text: str) -> dict[str, int]:
+    root = ET.fromstring(xml_text)
+    players_parent = first_descendant(root, "players")
+    if players_parent is None:
+        return {}
+
+    ordered_keys: dict[str, int] = {}
+    rank = 1
+    for player_node in list(players_parent):
+        if local_name(player_node.tag) != "player":
+            continue
+        player_key = find_child_text(player_node, "player_key")
+        if not player_key:
+            continue
+        ordered_keys[player_key] = rank
+        rank += 1
+    return ordered_keys
+
+
+def parse_league_stat_categories(xml_text: str) -> dict[str, dict]:
+    root = ET.fromstring(xml_text)
+    stat_categories_node = first_descendant(root, "stat_categories")
+    stats_node = first_descendant(stat_categories_node, "stats")
+    if stats_node is None:
+        return {}
+
+    categories: dict[str, dict] = {}
+    for stat_node in list(stats_node):
+        if local_name(stat_node.tag) != "stat":
+            continue
+        stat_id = find_child_text(stat_node, "stat_id")
+        if not stat_id:
+            continue
+        categories[stat_id] = {
+            "stat_id": stat_id,
+            "name": find_child_text(stat_node, "name"),
+            "display_name": find_child_text(stat_node, "display_name") or find_child_text(stat_node, "abbr") or stat_id,
+            "abbr": find_child_text(stat_node, "abbr"),
+            "group": find_child_text(stat_node, "group"),
+            "sort_order": find_child_text(stat_node, "sort_order"),
+            "enabled": find_child_text(stat_node, "enabled") == "1",
+            "is_only_display_stat": find_child_text(stat_node, "is_only_display_stat") == "1",
+        }
+    return categories
+
+
+def parse_current_matchup_xml(
+    xml_text: str,
+    my_team_key: str,
+    stat_categories: dict[str, dict],
+) -> MatchupSnapshot | None:
+    root = ET.fromstring(xml_text)
+    matchups_node = first_descendant(root, "matchups")
+    if matchups_node is None:
+        return None
+
+    matchup_node = next((node for node in list(matchups_node) if local_name(node.tag) == "matchup"), None)
+    if matchup_node is None:
+        return None
+
+    teams_node = first_descendant(matchup_node, "teams")
+    if teams_node is None:
+        return None
+
+    team_nodes = [node for node in list(teams_node) if local_name(node.tag) == "team"]
+    my_team_node = next((node for node in team_nodes if find_child_text(node, "team_key") == my_team_key), None)
+    opponent_team_node = next((node for node in team_nodes if find_child_text(node, "team_key") != my_team_key), None)
+    if my_team_node is None:
+        return None
+
+    stat_winners_node = first_descendant(matchup_node, "stat_winners")
+    winner_map: dict[str, dict] = {}
+    if stat_winners_node is not None:
+        for stat_winner_node in list(stat_winners_node):
+            if local_name(stat_winner_node.tag) != "stat_winner":
+                continue
+            stat_id = find_child_text(stat_winner_node, "stat_id")
+            if not stat_id:
+                continue
+            winner_map[stat_id] = {
+                "winner_team_key": find_child_text(stat_winner_node, "winner_team_key"),
+                "is_tied": find_child_text(stat_winner_node, "is_tied") == "1",
+            }
+
+    my_stats = parse_team_stats(my_team_node)
+    opponent_stats = parse_team_stats(opponent_team_node) if opponent_team_node is not None else {}
+
+    categories: list[MatchupCategory] = []
+    stat_ids = sorted(
+        {*(stat_categories.keys()), *(my_stats.keys()), *(opponent_stats.keys()), *(winner_map.keys())},
+        key=lambda stat_id: int(stat_id) if stat_id.isdigit() else stat_id,
+    )
+    for stat_id in stat_ids:
+        category_info = stat_categories.get(stat_id, {})
+        if category_info.get("is_only_display_stat"):
+            continue
+        category_key = matchup_category_key(category_info.get("group"), category_info.get("display_name") or stat_id)
+        categories.append(
+            MatchupCategory(
+                stat_id=stat_id,
+                category_key=category_key,
+                display_name=category_info.get("display_name") or stat_id,
+                group=category_info.get("group"),
+                my_value=my_stats.get(stat_id),
+                opponent_value=opponent_stats.get(stat_id),
+                winner_team_key=winner_map.get(stat_id, {}).get("winner_team_key"),
+                is_tied=winner_map.get(stat_id, {}).get("is_tied", False),
+            )
+        )
+
+    return MatchupSnapshot(
+        week=_parse_optional_int(find_child_text(matchup_node, "week")),
+        week_start=find_child_text(matchup_node, "week_start"),
+        week_end=find_child_text(matchup_node, "week_end"),
+        status=find_child_text(matchup_node, "status"),
+        team_key=my_team_key,
+        team_name=find_child_text(my_team_node, "name"),
+        opponent_team_key=find_child_text(opponent_team_node, "team_key") if opponent_team_node is not None else None,
+        opponent_team_name=find_child_text(opponent_team_node, "name") if opponent_team_node is not None else None,
+        team_points=_parse_optional_float(find_descendant_text(first_descendant(my_team_node, "team_points"), "total")),
+        opponent_team_points=_parse_optional_float(find_descendant_text(first_descendant(opponent_team_node, "team_points"), "total")) if opponent_team_node is not None else None,
+        categories=categories,
+    )
+
+
+def parse_team_stats(team_node: ET.Element | None) -> dict[str, str]:
+    team_stats_node = first_descendant(team_node, "team_stats")
+    stats_node = first_descendant(team_stats_node, "stats")
+    if stats_node is None:
+        return {}
+    stats: dict[str, str] = {}
+    for stat_node in list(stats_node):
+        if local_name(stat_node.tag) != "stat":
+            continue
+        stat_id = find_child_text(stat_node, "stat_id")
+        value = find_child_text(stat_node, "value")
+        if stat_id:
+            stats[stat_id] = value or ""
+    return stats
+
+
+def parse_numeric_stat_value(value: str | None) -> float | None:
+    if value is None:
+        return None
+    normalized = value.strip()
+    if not normalized or normalized == "-":
+        return None
+    if "/" in normalized:
+        return None
+    try:
+        return float(normalized)
+    except ValueError:
+        return None
+
+
+def normalize_matchup_group(group: str | None) -> str:
+    normalized = (group or "").strip().lower()
+    if normalized in {"hitting", "batting", "batter"}:
+        return "batting"
+    if normalized in {"pitching", "pitcher"}:
+        return "pitching"
+    return normalized or "unknown"
+
+
+def matchup_category_key(group: str | None, display_name: str) -> str:
+    return f"{normalize_matchup_group(group)}:{display_name}"
+
+
+def build_matchup_delta_map(matchup: MatchupSnapshot) -> dict[str, MatchupCategoryDelta]:
+    delta_map: dict[str, MatchupCategoryDelta] = {}
+    for category in matchup.categories:
+        my_numeric_value = parse_numeric_stat_value(category.my_value)
+        opponent_numeric_value = parse_numeric_stat_value(category.opponent_value)
+        delta = None
+        if my_numeric_value is not None and opponent_numeric_value is not None:
+            delta = round(my_numeric_value - opponent_numeric_value, 3)
+        delta_map[category.category_key] = MatchupCategoryDelta(
+            stat_id=category.stat_id,
+            category_key=category.category_key,
+            display_name=category.display_name,
+            group=category.group,
+            my_raw_value=category.my_value,
+            opponent_raw_value=category.opponent_value,
+            my_numeric_value=my_numeric_value,
+            opponent_numeric_value=opponent_numeric_value,
+            delta=delta,
+            winner_team_key=category.winner_team_key,
+            is_tied=category.is_tied,
+        )
+    return delta_map
+
+
+def _parse_optional_int(value: str | None) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        return None
+
+
+def _parse_optional_float(value: str | None) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        return None
 
 
 def build_roster_update_xml(lineup_date: str, moves: list[PlannedMove]) -> str:

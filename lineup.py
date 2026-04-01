@@ -79,26 +79,23 @@ def describe_starting_status(player: Player) -> str:
 
 def player_priority(player: Player, projections: dict[str, float]) -> float:
     projection = projections.get(player.player_key, projections.get(player.name, 0.0))
-    starting_bonus = 1000 if player.is_starting_today else 0
-    pending_percent_bonus = 0 if player.yahoo_percent_started is None else player.yahoo_percent_started * 5
-    reliever_bonus = 250 if player.starting_status_reason == "reliever" else 0
-    # Lower O-Rank is better. Keep this as a tie-break signal behind start-status.
-    o_rank_bonus = 0 if player.yahoo_o_rank is None else max(0, 500 - player.yahoo_o_rank)
-    locked_penalty = -10000 if player.is_locked else 0
-    return projection + starting_bonus + pending_percent_bonus + reliever_bonus + o_rank_bonus + locked_penalty
+    starting_bonus = 120 if player.is_starting_today else 0
+    reliever_bonus = 30 if player.starting_status_reason == "reliever" else 0
+    locked_penalty = -500 if player.is_locked else 0
+    return projection + starting_bonus + reliever_bonus + locked_penalty
 
 
 def lineup_value(player: Player, projections: dict[str, float], target_position: str | None) -> int:
     status_value_map = {
-        "starting": 10_000,
-        "reliever": 8_000,
-        "player_unmapped": 4_000,
-        "lineup_pending": 3_500,
-        "probable_pitcher_missing": 3_000,
-        "team_unmapped": 2_500,
+        "starting": 1_000,
+        "reliever": 800,
+        "player_unmapped": 350,
+        "lineup_pending": 300,
+        "probable_pitcher_missing": 250,
+        "team_unmapped": 200,
         "not_starting": 0,
-        "no_game": -500,
-        "inactive_slot": -50_000,
+        "no_game": -100,
+        "inactive_slot": -5_000,
     }
     status_key = (
         "starting"
@@ -108,8 +105,8 @@ def lineup_value(player: Player, projections: dict[str, float], target_position:
         else player.starting_status_reason or "player_unmapped"
     )
     base = status_value_map.get(status_key, 2_000)
-    stickiness_bonus = 25 if player.selected_position == target_position else 0
-    active_bonus = 10 if not is_bench_position(player.selected_position) else 0
+    stickiness_bonus = 8 if player.selected_position == target_position else 0
+    active_bonus = 4 if not is_bench_position(player.selected_position) else 0
     return int(base + player_priority(player, projections) + stickiness_bonus + active_bonus)
 
 
@@ -205,6 +202,21 @@ def upgrade_reason(player: Player, replacement: Player) -> str:
 
 def upgrade_insertion_reason(player: Player, displaced_player: Player, target_position: str | None) -> str:
     if player.is_starting_today is True:
+        if (
+            player.yahoo_percent_started is not None
+            and displaced_player.yahoo_percent_started is not None
+            and player.yahoo_average_pick is not None
+            and displaced_player.yahoo_average_pick is not None
+            and player.yahoo_actual_rank_last_week is not None
+            and displaced_player.yahoo_actual_rank_last_week is not None
+        ):
+            return (
+                f"Starting today and better Yahoo tie-break profile "
+                f"(% Start {player.yahoo_percent_started} vs {displaced_player.yahoo_percent_started}, "
+                f"Avg Pick {player.yahoo_average_pick:.1f} vs {displaced_player.yahoo_average_pick:.1f}, "
+                f"AR last week {player.yahoo_actual_rank_last_week} vs {displaced_player.yahoo_actual_rank_last_week}) "
+                f"at {target_position}."
+            )
         return f"Starting today and ranks above {displaced_player.name} at {target_position}."
     if player.starting_status_reason == "reliever":
         return f"Reliever available today and ranks above {displaced_player.name} at {target_position}."
@@ -219,9 +231,37 @@ def upgrade_insertion_reason(player: Player, displaced_player: Player, target_po
 def pending_upgrade_value(player: Player, projections: dict[str, float], target_position: str | None) -> int:
     if not player_is_pending_upgrade_candidate(player):
         return -1_000_000
-    percent_started_score = 0 if player.yahoo_percent_started is None else player.yahoo_percent_started * 1_000
-    o_rank_score = 0 if player.yahoo_o_rank is None else max(0, 500 - player.yahoo_o_rank // 10)
-    return int(percent_started_score + o_rank_score + player_priority(player, projections) + (25 if player.selected_position == target_position else 0))
+    percent_started_score = player.yahoo_percent_started or 0
+    average_pick_score = normalized_average_pick_score(player)
+    actual_rank_score = normalized_actual_rank_last_week_score(player)
+    return int(
+        percent_started_score
+        + average_pick_score
+        + actual_rank_score
+        + player_priority(player, projections)
+        + (8 if player.selected_position == target_position else 0)
+    )
+
+
+def normalized_average_pick_score(player: Player) -> int:
+    if player.yahoo_average_pick is None:
+        return 50
+    bounded_pick = min(max(player.yahoo_average_pick, 1.0), 500.0)
+    return int(round(100 - ((bounded_pick - 1.0) / 499.0) * 100))
+
+
+def normalized_actual_rank_last_week_score(player: Player) -> int:
+    if player.yahoo_actual_rank_last_week is None:
+        return 0
+    bounded_rank = max(player.yahoo_actual_rank_last_week, 1)
+    return max(0, 100 - (bounded_rank - 1) * 5)
+
+
+def starting_tiebreak_score(player: Player) -> int:
+    percent_started = player.yahoo_percent_started or 0
+    average_pick = normalized_average_pick_score(player)
+    actual_rank = normalized_actual_rank_last_week_score(player)
+    return percent_started + average_pick + actual_rank
 
 
 def unresolved_warning(player: Player) -> str | None:
@@ -237,8 +277,10 @@ def unresolved_warning(player: Player) -> str | None:
 def optimize_lineup(
     roster: RosterSnapshot,
     projections: dict[str, float] | None = None,
+    matchup_adjustments: dict[str, int] | None = None,
 ) -> LineupPlan:
     projections = projections or {}
+    matchup_adjustments = matchup_adjustments or {}
     warnings: list[str] = []
     moves: list[PlannedMove] = []
 
@@ -325,7 +367,7 @@ def optimize_lineup(
         )
 
     roster_after_open_slots = apply_plan_to_roster(roster, LineupPlan(moves=moves, warnings=[]))
-    moves.extend(compute_global_hitter_upgrade_moves(roster_after_open_slots, projections))
+    moves.extend(compute_global_hitter_upgrade_moves(roster_after_open_slots, projections, matchup_adjustments))
 
     final_roster = apply_plan_to_roster(roster, LineupPlan(moves=moves, warnings=[]))
     for player in final_roster.players:
@@ -359,23 +401,19 @@ def choose_upgrade_replacement(
     bench_players: list[Player],
     projections: dict[str, float],
 ) -> Player | None:
-    if active_player.yahoo_o_rank is None:
-        return None
-
     eligible = [
         player
         for player in bench_players
         if not player.is_locked
         and player_can_be_started(player)
         and can_fill_position(player, position)
-        and player.yahoo_o_rank is not None
-        and player.yahoo_o_rank < active_player.yahoo_o_rank
+        and rank_upgrade_value(player, projections, position or "") > rank_upgrade_value(active_player, projections, position or "")
     ]
     if not eligible:
         return None
     return sorted(
         eligible,
-        key=lambda player: (player.yahoo_o_rank is not None, -(500 - player.yahoo_o_rank), player_priority(player, projections)),
+        key=lambda player: rank_upgrade_value(player, projections, position or ""),
         reverse=True,
     )[0]
 
@@ -389,25 +427,35 @@ def hitter_can_be_globally_ranked(player: Player) -> bool:
     )
 
 
-def global_hitter_slot_value(player: Player, projections: dict[str, float], slot_name: str) -> int:
+def global_hitter_slot_value(
+    player: Player,
+    projections: dict[str, float],
+    slot_name: str,
+    matchup_adjustments: dict[str, int] | None = None,
+) -> int:
+    matchup_adjustments = matchup_adjustments or {}
     if not hitter_can_be_globally_ranked(player):
         return -1_000_000
     if player.is_starting_today is True:
-        status_score = 120_000
-        pending_score = 0
+        status_score = 1_000
+        tiebreak_score = starting_tiebreak_score(player)
     else:
-        status_score = 100_000
-        pending_score = (player.yahoo_percent_started or 0) * 300
-    o_rank_score = 0 if player.yahoo_o_rank is None else max(0, 2_000 - player.yahoo_o_rank)
-    stay_bonus = 25 if player.selected_position == slot_name else 0
+        status_score = 700
+        tiebreak_score = (
+            (player.yahoo_percent_started or 0)
+            + normalized_average_pick_score(player)
+            + normalized_actual_rank_last_week_score(player)
+        )
+    stay_bonus = 8 if player.selected_position == slot_name else 0
     flexibility_bonus = slot_flexibility_bonus(player, slot_name)
+    matchup_adjustment = matchup_adjustments.get(player.player_key, 0)
     return int(
         status_score
-        + pending_score
-        + o_rank_score
+        + tiebreak_score
         + player_priority(player, projections)
         + stay_bonus
         + flexibility_bonus
+        + matchup_adjustment
     )
 
 
@@ -417,18 +465,16 @@ def slot_flexibility_bonus(player: Player, slot_name: str) -> int:
     bonus = 0
 
     if normalized_slot not in FLEXIBLE_POSITIONS and normalized_slot in eligible_positions:
-        bonus += 2_000
-    if (player.primary_position or "").upper() == normalized_slot:
-        bonus += 500
+        bonus += 8
 
     if normalized_slot == "OF" and eligible_positions & {"LF", "CF", "RF"}:
-        bonus -= 1_500
+        bonus -= 4
     if normalized_slot == "IF" and eligible_positions & {"1B", "2B", "3B", "SS"}:
-        bonus -= 1_500
+        bonus -= 4
     if normalized_slot == "UTIL" and ((player.position_type or "").upper() == "B") and eligible_positions - {"UTIL"}:
-        bonus -= 2_500
+        bonus -= 6
     if normalized_slot == "P" and eligible_positions & {"SP", "RP"}:
-        bonus -= 1_500
+        bonus -= 4
 
     return bonus
 
@@ -436,7 +482,9 @@ def slot_flexibility_bonus(player: Player, slot_name: str) -> int:
 def compute_global_hitter_upgrade_moves(
     roster: RosterSnapshot,
     projections: dict[str, float],
+    matchup_adjustments: dict[str, int] | None = None,
 ) -> list[PlannedMove]:
+    matchup_adjustments = matchup_adjustments or {}
     active_slots = [
         (player.selected_position or "", index)
         for index, player in enumerate(roster.players)
@@ -483,7 +531,7 @@ def compute_global_hitter_upgrade_moves(
         add_edge(source, player_node, 1, 0)
         for slot_index, (slot_name, _) in enumerate(active_slots):
             if can_fill_position(player, slot_name):
-                score = global_hitter_slot_value(player, projections, slot_name)
+                score = global_hitter_slot_value(player, projections, slot_name, matchup_adjustments)
                 add_edge(player_node, 1 + len(candidate_players) + slot_index, 1, -score)
         add_edge(player_node, sink, 1, 0)
 
@@ -633,7 +681,7 @@ def compute_rank_upgrade_moves(
         if is_bench_position(player.selected_position)
         and not player.is_locked
         and player_can_be_started(player)
-        and player.yahoo_o_rank is not None
+        and player.yahoo_average_pick is not None
     ]
     if not bench_ranked_pool:
         return []
@@ -721,9 +769,14 @@ def compute_rank_upgrade_moves(
 
 
 def rank_upgrade_value(player: Player, projections: dict[str, float], slot_name: str) -> int:
-    if player.yahoo_o_rank is None:
+    if player.yahoo_average_pick is None and player.yahoo_actual_rank_last_week is None:
         return -1_000_000
-    return int(100_000 - player.yahoo_o_rank * 100 + player_priority(player, projections) + (25 if player.selected_position == slot_name else 0))
+    return int(
+        1_000
+        + starting_tiebreak_score(player)
+        + player_priority(player, projections)
+        + (8 if player.selected_position == slot_name else 0)
+    )
 
 
 def build_rank_upgrade_moves(

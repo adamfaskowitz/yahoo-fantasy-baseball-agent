@@ -17,6 +17,8 @@ class Player:
     status: str | None = None
     position_type: str | None = None
     yahoo_o_rank: int | None = None
+    yahoo_average_pick: float | None = None
+    yahoo_actual_rank_last_week: int | None = None
     yahoo_percent_started: int | None = None
     yahoo_percent_owned: int | None = None
     is_starting_today: bool | None = None
@@ -53,3 +55,45 @@ class RosterSnapshot:
     coverage_type: str | None
     players: list[Player]
     slot_limits: dict[str, int] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class MatchupCategory:
+    stat_id: str
+    category_key: str
+    display_name: str
+    group: str | None
+    my_value: str | None
+    opponent_value: str | None
+    winner_team_key: str | None
+    is_tied: bool
+
+
+@dataclass(frozen=True)
+class MatchupCategoryDelta:
+    stat_id: str
+    category_key: str
+    display_name: str
+    group: str | None
+    my_raw_value: str | None
+    opponent_raw_value: str | None
+    my_numeric_value: float | None
+    opponent_numeric_value: float | None
+    delta: float | None
+    winner_team_key: str | None
+    is_tied: bool
+
+
+@dataclass(frozen=True)
+class MatchupSnapshot:
+    week: int | None
+    week_start: str | None
+    week_end: str | None
+    status: str | None
+    team_key: str
+    team_name: str | None
+    opponent_team_key: str | None
+    opponent_team_name: str | None
+    team_points: float | None
+    opponent_team_points: float | None
+    categories: list[MatchupCategory] = field(default_factory=list)
