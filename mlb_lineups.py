@@ -64,6 +64,7 @@ _GAME_BOXSCORE_CACHE: dict[int, dict] = {}
 _MLB_PERSON_ID_CACHE: dict[tuple[str, int, str], str | None] = {}
 _STARTING_HITTER_IDS_CACHE: dict[tuple[int, int], set[str]] = {}
 _PROBABLE_PITCHER_CACHE: dict[tuple[int, int], str | None] = {}
+_PITCHER_ROLE_CACHE: dict[tuple[str, int], str | None] = {}
 _LOCAL_ID_MAP_CACHE: dict[str, dict] | None = None
 _LOCAL_ID_NAME_CACHE: dict[tuple[str, str], dict] | None = None
 
@@ -333,6 +334,45 @@ def get_team_probable_pitcher_id(game: dict, team_id: int) -> str | None:
     return result
 
 
+def get_pitcher_role(mlb_person_id: str, season: int) -> str | None:
+    cache_key = (mlb_person_id, season)
+    if cache_key in _PITCHER_ROLE_CACHE:
+        return _PITCHER_ROLE_CACHE[cache_key]
+
+    response = requests.get(
+        f"{MLB_BASE}/people/{mlb_person_id}/stats",
+        params={"stats": "season", "group": "pitching", "season": str(season), "sportIds": 1},
+        timeout=30,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    stat_blocks = payload.get("stats") or []
+    if not stat_blocks:
+        _PITCHER_ROLE_CACHE[cache_key] = None
+        return None
+    splits = stat_blocks[0].get("splits") or []
+    if not splits:
+        _PITCHER_ROLE_CACHE[cache_key] = None
+        return None
+
+    stat_line = splits[0].get("stat") or {}
+    starts = int(stat_line.get("gamesStarted") or 0)
+    appearances = int(stat_line.get("gamesPlayed") or 0)
+    saves = int(stat_line.get("saves") or 0)
+    holds = int(stat_line.get("holds") or 0)
+
+    role = None
+    if starts == 0 and appearances > 0:
+        role = "reliever"
+    elif saves + holds > 0 and starts == 0:
+        role = "reliever"
+    elif starts > 0:
+        role = "starter"
+
+    _PITCHER_ROLE_CACHE[cache_key] = role
+    return role
+
+
 def yahoo_player_is_starting(
     player: Player,
     date_str: str,
@@ -364,6 +404,10 @@ def yahoo_player_is_starting(
         return _status_result(None, "player_unmapped")
 
     if position_type == "P":
+        if primary_position == "P":
+            inferred_role = get_pitcher_role(mlb_person_id, int(date_str[:4]))
+            if inferred_role == "reliever":
+                return _status_result(None, "reliever")
         probable_pitcher_id = get_team_probable_pitcher_id(game, mlb_team_id)
         if probable_pitcher_id is None:
             return _status_result(None, "probable_pitcher_missing")
@@ -421,5 +465,6 @@ def clear_caches() -> None:
     _MLB_PERSON_ID_CACHE.clear()
     _STARTING_HITTER_IDS_CACHE.clear()
     _PROBABLE_PITCHER_CACHE.clear()
+    _PITCHER_ROLE_CACHE.clear()
     _LOCAL_ID_MAP_CACHE = None
     _LOCAL_ID_NAME_CACHE = None

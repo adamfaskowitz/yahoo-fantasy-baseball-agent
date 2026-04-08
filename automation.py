@@ -141,6 +141,7 @@ def main() -> int:
         if email_config is None:
             raise RuntimeError("Email requested, but SMTP_* environment variables are incomplete.")
         subject = build_report_subject(
+            team_name=roster.team_name,
             lineup_date=config.lineup_date,
             trigger_label=trigger_label,
             applied=applied,

@@ -56,13 +56,21 @@ def load_email_config() -> EmailConfig | None:
 
 def build_report_subject(
     *,
+    team_name: str | None,
     lineup_date: str,
     trigger_label: str,
     applied: bool,
     moves_count: int,
 ) -> str:
     mode = "APPLIED" if applied else "DRY RUN"
-    return f"[Yahoo Lineup Agent] {mode} {lineup_date} {trigger_label} ({moves_count} moves)"
+    team_label = team_name or "Unknown Team"
+    same_day_prefix = f"{lineup_date} "
+    if trigger_label.startswith(same_day_prefix):
+        trigger_fragment = trigger_label[len(same_day_prefix):]
+        timing = f"{lineup_date} @ {trigger_fragment}"
+    else:
+        timing = f"{lineup_date} | Trigger {trigger_label}"
+    return f"[Yahoo Lineup Agent] {team_label} {mode} {timing} ({moves_count} moves)"
 
 
 def build_report_body(

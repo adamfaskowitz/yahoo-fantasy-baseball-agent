@@ -54,6 +54,7 @@ class RosterSnapshot:
     lineup_date: str | None
     coverage_type: str | None
     players: list[Player]
+    league_profile_key: str | None = None
     slot_limits: dict[str, int] = field(default_factory=dict)
 
 

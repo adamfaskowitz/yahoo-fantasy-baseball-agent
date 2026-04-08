@@ -8,6 +8,7 @@ import requests
 
 from auth import load_token_file, refresh_access_token, save_token_file
 from config import AppConfig
+from league_profiles import get_league_profile
 from lineup import DEFAULT_SLOT_LIMITS
 from models import MatchupCategory, MatchupCategoryDelta, MatchupSnapshot, PlannedMove, Player, RosterSnapshot
 from utils import find_child_text, local_name
@@ -24,6 +25,7 @@ class YahooFantasyClient:
         self._player_average_pick_cache: dict[str, float | None] = {}
         self._player_actual_rank_last_week_cache: dict[str, int | None] = {}
         self._league_stat_categories_cache: dict[str, dict] | None = None
+        self._league_roster_slot_limits_cache: dict[str, int] | None = None
         self.token = self._load_or_refresh_token()
         self.session.headers.update(
             {
@@ -63,6 +65,11 @@ class YahooFantasyClient:
         )
         response.raise_for_status()
         roster = parse_roster_xml(response.text)
+        roster = replace(
+            roster,
+            league_profile_key=self.config.league_profile_key,
+            slot_limits=self.get_league_roster_slot_limits(),
+        )
         return self._populate_player_yahoo_metrics(roster)
 
     def set_lineup(self, lineup_date: str, moves: Iterable[PlannedMove]) -> None:
@@ -85,6 +92,21 @@ class YahooFantasyClient:
         response.raise_for_status()
         self._league_stat_categories_cache = parse_league_stat_categories(response.text)
         return self._league_stat_categories_cache
+
+    def get_league_roster_slot_limits(self) -> dict[str, int]:
+        if self._league_roster_slot_limits_cache is not None:
+            return self._league_roster_slot_limits_cache
+        league_key = ".".join(self.config.yahoo_team_key.split(".")[:3])
+        response = self.session.get(
+            f"{BASE_URL}/league/{league_key}/settings",
+            timeout=30,
+        )
+        response.raise_for_status()
+        parsed = parse_league_roster_positions(response.text)
+        profile = get_league_profile(self.config.league_profile_key)
+        fallback_limits = {slot: DEFAULT_SLOT_LIMITS[slot] for slot in profile.active_slot_order if slot in DEFAULT_SLOT_LIMITS}
+        self._league_roster_slot_limits_cache = parsed or fallback_limits or DEFAULT_SLOT_LIMITS.copy()
+        return self._league_roster_slot_limits_cache
 
     def get_current_matchup(self) -> MatchupSnapshot | None:
         response = self.session.get(
@@ -197,6 +219,7 @@ def parse_roster_xml(xml_text: str) -> RosterSnapshot:
         lineup_date=lineup_date,
         coverage_type=coverage_type,
         players=players,
+        league_profile_key=None,
         slot_limits=DEFAULT_SLOT_LIMITS.copy(),
     )
 
@@ -357,6 +380,36 @@ def parse_league_stat_categories(xml_text: str) -> dict[str, dict]:
             "is_only_display_stat": find_child_text(stat_node, "is_only_display_stat") == "1",
         }
     return categories
+
+
+def parse_league_roster_positions(xml_text: str) -> dict[str, int]:
+    root = ET.fromstring(xml_text)
+    roster_positions_node = first_descendant(root, "roster_positions")
+    roster_position_nodes = [
+        node
+        for node in list(roster_positions_node or [])
+        if local_name(node.tag) == "roster_position"
+    ]
+
+    if not roster_position_nodes:
+        return {}
+
+    slot_limits: dict[str, int] = {}
+    for roster_position_node in roster_position_nodes:
+        position = find_child_text(roster_position_node, "position")
+        count = find_child_text(roster_position_node, "count")
+        if not position:
+            continue
+        normalized = position.strip()
+        if normalized in {"IL+", "IR"}:
+            normalized = "IL"
+        if normalized == "Util":
+            normalized = "Util"
+        try:
+            slot_limits[normalized] = slot_limits.get(normalized, 0) + int(count or "1")
+        except ValueError:
+            slot_limits[normalized] = slot_limits.get(normalized, 0) + 1
+    return slot_limits
 
 
 def parse_current_matchup_xml(

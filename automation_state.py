@@ -1,18 +1,23 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from models import RosterSnapshot
 
-STATE_PATH = Path(".automation/agent_state.json")
+
+def state_path() -> Path:
+    raw_path = os.getenv("AUTOMATION_STATE_PATH", ".automation/agent_state.json")
+    return Path(raw_path)
 
 
 def load_state() -> dict:
-    if not STATE_PATH.exists():
+    path = state_path()
+    if not path.exists():
         return {"lineups": {}}
     try:
-        data = json.loads(STATE_PATH.read_text())
+        data = json.loads(path.read_text())
     except (json.JSONDecodeError, OSError):
         return {"lineups": {}}
     if not isinstance(data, dict):
@@ -22,8 +27,9 @@ def load_state() -> dict:
 
 
 def save_state(state: dict) -> None:
-    STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    STATE_PATH.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n")
+    path = state_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n")
 
 
 def active_slot_map(roster: RosterSnapshot) -> dict[str, str]:

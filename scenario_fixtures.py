@@ -202,6 +202,34 @@ def scenario_catalog() -> list[Scenario]:
             expected_warnings=(),
         ),
         Scenario(
+            name="corner_infielder_can_fill_ci",
+            description="A 1B/3B bat should be able to fill a CI slot in the roto league shape.",
+            roster=replace(
+                roster,
+                players=[
+                    player("1", "Matt Chapman", "BN", ("3B", "CI", "Util"), is_starting_today=True, starting_status_reason="starting", yahoo_percent_started=88, yahoo_average_pick=115.0, yahoo_actual_rank_last_week=18),
+                ],
+                league_profile_key="roto_5x5_dynasty",
+                slot_limits={"CI": 1, "BN": 1},
+            ),
+            expected_moves=("Matt Chapman:BN->CI",),
+            expected_warnings=(),
+        ),
+        Scenario(
+            name="middle_infielder_can_fill_mi",
+            description="A 2B/SS bat should be able to fill an MI slot in the roto league shape.",
+            roster=replace(
+                roster,
+                players=[
+                    player("1", "Bryson Stott", "BN", ("2B", "SS", "MI", "Util"), is_starting_today=True, starting_status_reason="starting", yahoo_percent_started=71, yahoo_average_pick=140.0, yahoo_actual_rank_last_week=24),
+                ],
+                league_profile_key="roto_5x5_dynasty",
+                slot_limits={"MI": 1, "BN": 1},
+            ),
+            expected_moves=("Bryson Stott:BN->MI",),
+            expected_warnings=(),
+        ),
+        Scenario(
             name="baseline",
             description="Historical-style roster with the default conservative swaps.",
             roster=roster,

@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 from dataclasses import replace
 
+from league_profiles import get_league_profile
 from models import LineupPlan, PlannedMove, Player, RosterSnapshot
 
 BENCH_POSITIONS = {"BN", "IL", "IL+", "NA", "IR"}
@@ -116,6 +117,16 @@ def get_slot_limits(roster: RosterSnapshot) -> dict[str, int]:
     return roster.slot_limits or DEFAULT_SLOT_LIMITS.copy()
 
 
+def get_active_slot_order(roster: RosterSnapshot) -> tuple[str, ...]:
+    profile = get_league_profile(roster.league_profile_key)
+    return profile.active_slot_order
+
+
+def get_render_groups(roster: RosterSnapshot) -> tuple[str, ...]:
+    profile = get_league_profile(roster.league_profile_key)
+    return profile.render_groups
+
+
 def count_filled_slots(roster: RosterSnapshot) -> dict[str, int]:
     counts: dict[str, int] = {}
     for player in roster.players:
@@ -130,7 +141,7 @@ def open_active_slots(roster: RosterSnapshot) -> list[str]:
     limits = get_slot_limits(roster)
     filled = count_filled_slots(roster)
     slots: list[str] = []
-    for slot in ACTIVE_SLOT_ORDER:
+    for slot in get_active_slot_order(roster):
         for _ in range(max(0, limits.get(slot, 0) - filled.get(slot, 0))):
             slots.append(slot)
     return slots
@@ -149,10 +160,14 @@ def can_fill_position(player: Player, target_position: str | None) -> bool:
         return True
     if normalized_target == "IF" and eligible_positions & INFIELD_POSITIONS:
         return True
+    if normalized_target == "CI" and eligible_positions & {"1B", "3B", "IF"}:
+        return True
+    if normalized_target == "MI" and eligible_positions & {"2B", "SS", "IF"}:
+        return True
     if normalized_target == "UTIL":
-        return player.position_type == "B" or "Util" in eligible_positions
+        return (player.position_type or "").upper() == "B" or "UTIL" in eligible_positions
     if normalized_target == "P":
-        return player.position_type == "P" or bool(eligible_positions & PITCHER_POSITIONS)
+        return (player.position_type or "").upper() == "P" or bool(eligible_positions & PITCHER_POSITIONS)
     return False
 
 
@@ -965,9 +980,9 @@ def render_group_name(player: Player) -> str:
 def roster_sort_key(roster: RosterSnapshot, player: Player) -> tuple[int, int, str]:
     group = render_group_name(player)
     try:
-        group_index = YAHOO_RENDER_GROUPS.index(group)
+        group_index = get_render_groups(roster).index(group)
     except ValueError:
-        group_index = len(YAHOO_RENDER_GROUPS)
+        group_index = len(get_render_groups(roster))
 
     slot_index = 0
     if group in {"SP", "RP", "P"}:
@@ -994,7 +1009,12 @@ def render_roster(roster: RosterSnapshot) -> str:
     lines = [
         f"Team: {roster.team_name or roster.team_key}",
         f"Date: {roster.lineup_date or 'unknown'}",
-        "Slots: " + ", ".join(f"{slot} x{slot_limits[slot]}" for slot in ACTIVE_SLOT_ORDER if slot in slot_limits),
+        "Slots: "
+        + ", ".join(
+            f"{slot} x{slot_limits[slot]}"
+            for slot in get_active_slot_order(roster)
+            if slot in slot_limits
+        ),
         "Roster:",
     ]
     for player in sorted(roster.players, key=lambda item: roster_sort_key(roster, item)):

@@ -7,6 +7,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from league_profiles import default_profile_key_for_team_key
 from utils import parse_bool
 
 load_dotenv()
@@ -20,6 +21,7 @@ class AppConfig:
     yahoo_redirect_uri: str
     yahoo_scope: str
     yahoo_team_key: str
+    league_profile_key: str
     yahoo_token_file: str
     yahoo_access_token: str | None
     yahoo_refresh_token: str | None
@@ -43,6 +45,8 @@ def load_config(
         yahoo_redirect_uri=os.getenv("YAHOO_REDIRECT_URI", "oob"),
         yahoo_scope=os.getenv("YAHOO_SCOPE", ""),
         yahoo_team_key=os.getenv("YAHOO_TEAM_KEY", ""),
+        league_profile_key=os.getenv("YAHOO_LEAGUE_PROFILE", "").strip()
+        or default_profile_key_for_team_key(os.getenv("YAHOO_TEAM_KEY", "")),
         yahoo_token_file=str(token_file_path),
         yahoo_access_token=os.getenv("YAHOO_ACCESS_TOKEN"),
         yahoo_refresh_token=os.getenv("YAHOO_REFRESH_TOKEN"),

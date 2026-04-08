@@ -11,6 +11,15 @@ permissions:
     - cron: "30 15-23,0-3 * * *"
   workflow_dispatch:
     inputs:
+      league_target:
+        description: "Which league to run"
+        required: false
+        default: "all"
+        type: choice
+        options:
+          - all
+          - primary
+          - dynasty
       apply_changes:
         description: "Apply roster changes to Yahoo"
         required: false
@@ -28,17 +37,31 @@ permissions:
 
 jobs:
   lineup:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.league_target == 'all' || inputs.league_target == matrix.league.slug }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        league:
+          - slug: primary
+            profile: h2h_categories
+            state_file: .automation/agent_state_primary.json
+          - slug: dynasty
+            profile: roto_5x5_dynasty
+            state_file: .automation/agent_state_dynasty.json
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
       TZ: America/Los_Angeles
       YAHOO_CLIENT_ID: ${{ secrets.YAHOO_CLIENT_ID }}
       YAHOO_CLIENT_SECRET: ${{ secrets.YAHOO_CLIENT_SECRET }}
       YAHOO_REFRESH_TOKEN: ${{ secrets.YAHOO_REFRESH_TOKEN }}
-      YAHOO_TEAM_KEY: ${{ secrets.YAHOO_TEAM_KEY }}
+      YAHOO_TEAM_KEY: ${{ matrix.league.slug == 'primary' && secrets.YAHOO_TEAM_KEY || '469.l.174916.t.7' }}
+      YAHOO_LEAGUE_PROFILE: ${{ matrix.league.profile }}
       YAHOO_REDIRECT_URI: oob
       YAHOO_OPEN_AUTH_BROWSER: "false"
+      AUTOMATION_STATE_PATH: ${{ matrix.league.state_file }}
       SMTP_HOST: ${{ secrets.SMTP_HOST }}
       SMTP_PORT: ${{ secrets.SMTP_PORT }}
       SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
@@ -66,10 +89,10 @@ jobs:
         run: |
           mkdir -p .automation
           git fetch origin automation-state || true
-          if git show origin/automation-state:.automation/agent_state.json > .automation/agent_state.json 2>/dev/null; then
+          if git show origin/automation-state:${{ matrix.league.state_file }} > "${{ matrix.league.state_file }}" 2>/dev/null; then
             echo "Restored automation state."
           else
-            echo '{"lineups": {}}' > .automation/agent_state.json
+            echo '{"lineups": {}}' > "${{ matrix.league.state_file }}"
             echo "No prior automation state found."
           fi
 
@@ -122,13 +145,13 @@ jobs:
         if: ${{ always() }}
         shell: bash
         run: |
-          if [ ! -f .automation/agent_state.json ]; then
+          if [ ! -f "${{ matrix.league.state_file }}" ]; then
             echo "No automation state file to persist."
             exit 0
           fi
 
           STATE_TMP=$(mktemp -d)
-          cp .automation/agent_state.json "$STATE_TMP/agent_state.json"
+          cp "${{ matrix.league.state_file }}" "$STATE_TMP/agent_state.json"
           git fetch origin automation-state || true
 
           if git ls-remote --exit-code origin automation-state >/dev/null 2>&1; then
@@ -142,14 +165,14 @@ jobs:
             )
           fi
 
-          mkdir -p "$STATE_TMP/worktree/.automation"
-          cp "$STATE_TMP/agent_state.json" "$STATE_TMP/worktree/.automation/agent_state.json"
+          mkdir -p "$STATE_TMP/worktree/$(dirname "${{ matrix.league.state_file }}")"
+          cp "$STATE_TMP/agent_state.json" "$STATE_TMP/worktree/${{ matrix.league.state_file }}"
 
           (
             cd "$STATE_TMP/worktree"
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add -f .automation/agent_state.json
+            git add -f "${{ matrix.league.state_file }}"
             git commit -m "Update automation state" || exit 0
             git push origin HEAD:automation-state
           )
