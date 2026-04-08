@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import date, timedelta
 import xml.etree.ElementTree as ET
 from typing import Iterable
 
@@ -23,7 +24,7 @@ class YahooFantasyClient:
         self._player_percent_started_cache: dict[str, int | None] = {}
         self._player_percent_owned_cache: dict[str, int | None] = {}
         self._player_average_pick_cache: dict[str, float | None] = {}
-        self._player_actual_rank_last_week_cache: dict[str, int | None] = {}
+        self._player_actual_rank_last_week_cache: dict[tuple[str, str | None], int | None] = {}
         self._league_stat_categories_cache: dict[str, dict] | None = None
         self._league_roster_slot_limits_cache: dict[str, int] | None = None
         self.token = self._load_or_refresh_token()
@@ -125,7 +126,8 @@ class YahooFantasyClient:
 
     def _populate_player_yahoo_metrics(self, roster: RosterSnapshot) -> RosterSnapshot:
         actual_rank_last_week = self.get_actual_rank_last_week_map(
-            [player.player_key for player in roster.players]
+            [player.player_key for player in roster.players],
+            lineup_date=roster.lineup_date,
         )
         players = []
         for player in roster.players:
@@ -155,13 +157,26 @@ class YahooFantasyClient:
             self._player_average_pick_cache[player_key] = self._fetch_player_average_pick(player_key)
         return self._player_average_pick_cache[player_key]
 
-    def get_actual_rank_last_week_map(self, player_keys: list[str]) -> dict[str, int | None]:
-        missing_keys = [player_key for player_key in player_keys if player_key not in self._player_actual_rank_last_week_cache]
+    def get_actual_rank_last_week_map(
+        self,
+        player_keys: list[str],
+        *,
+        lineup_date: str | None = None,
+    ) -> dict[str, int | None]:
+        cache_keys = {(player_key, lineup_date): player_key for player_key in player_keys}
+        missing_keys = [
+            player_key
+            for cache_key, player_key in cache_keys.items()
+            if cache_key not in self._player_actual_rank_last_week_cache
+        ]
         if missing_keys:
-            fetched = self._fetch_actual_rank_last_week_map(missing_keys)
+            fetched = self._fetch_actual_rank_last_week_map(missing_keys, lineup_date=lineup_date)
             for player_key in missing_keys:
-                self._player_actual_rank_last_week_cache[player_key] = fetched.get(player_key)
-        return {player_key: self._player_actual_rank_last_week_cache.get(player_key) for player_key in player_keys}
+                self._player_actual_rank_last_week_cache[(player_key, lineup_date)] = fetched.get(player_key)
+        return {
+            player_key: self._player_actual_rank_last_week_cache.get((player_key, lineup_date))
+            for player_key in player_keys
+        }
 
     def _fetch_player_metric(self, player_key: str, resource: str) -> int | None:
         response = self.session.get(
@@ -181,9 +196,16 @@ class YahooFantasyClient:
             return None
         return parse_average_pick(response.text)
 
-    def _fetch_actual_rank_last_week_map(self, player_keys: list[str]) -> dict[str, int | None]:
+    def _fetch_actual_rank_last_week_map(
+        self,
+        player_keys: list[str],
+        *,
+        lineup_date: str | None = None,
+    ) -> dict[str, int | None]:
         if not player_keys:
             return {}
+        if lineup_date:
+            return self._fetch_actual_rank_window_map(player_keys, lineup_date)
         team_key_parts = self.config.yahoo_team_key.split(".")
         league_key = ".".join(team_key_parts[:3])
         response = self.session.get(
@@ -193,6 +215,39 @@ class YahooFantasyClient:
         if response.status_code >= 400:
             return {}
         return parse_player_order_map(response.text)
+
+    def _fetch_actual_rank_window_map(self, player_keys: list[str], lineup_date: str) -> dict[str, int | None]:
+        team_key_parts = self.config.yahoo_team_key.split(".")
+        league_key = ".".join(team_key_parts[:3])
+        end_date = date.fromisoformat(lineup_date)
+        start_date = end_date - timedelta(days=6)
+        daily_ranks: dict[str, list[int]] = {player_key: [] for player_key in player_keys}
+        bottom_rank = len(player_keys) + 1
+
+        current = start_date
+        while current <= end_date:
+            response = self.session.get(
+                f"{BASE_URL}/league/{league_key}/players;player_keys={','.join(player_keys)};sort=AR;sort_type=date;sort_date={current.isoformat()}",
+                timeout=30,
+            )
+            if response.status_code >= 400:
+                current += timedelta(days=1)
+                continue
+            daily_order = parse_player_order_map(response.text)
+            for player_key in player_keys:
+                daily_ranks[player_key].append(daily_order.get(player_key, bottom_rank))
+            current += timedelta(days=1)
+
+        if not any(daily_ranks.values()):
+            return {}
+
+        averaged = {
+            player_key: sum(ranks) / len(ranks)
+            for player_key, ranks in daily_ranks.items()
+            if ranks
+        }
+        sorted_players = sorted(averaged.items(), key=lambda item: item[1])
+        return {player_key: rank for rank, (player_key, _) in enumerate(sorted_players, start=1)}
 
 
 def parse_roster_xml(xml_text: str) -> RosterSnapshot:

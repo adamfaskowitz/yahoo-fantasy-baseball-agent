@@ -300,6 +300,18 @@ def elite_pending_hitter_bonus(player: Player) -> int:
     return 0
 
 
+def superstar_hitter_preservation_bonus(player: Player) -> int:
+    if (player.position_type or "").upper() != "B":
+        return 0
+    if player.is_starting_today is False:
+        return 0
+    if player.yahoo_actual_rank_last_week != 1 and (
+        player.yahoo_average_pick is None or player.yahoo_average_pick >= 5
+    ):
+        return 0
+    return 1_000
+
+
 def pending_confidence_bonus(player: Player) -> int:
     if (player.position_type or "").upper() != "B":
         return 0
@@ -539,6 +551,7 @@ def global_hitter_slot_value(
     flexibility_bonus = slot_flexibility_bonus(player, slot_name)
     matchup_adjustment = matchup_adjustments.get(player.player_key, 0)
     pending_superstar_bonus = elite_pending_hitter_bonus(player)
+    preservation_bonus = superstar_hitter_preservation_bonus(player)
     pending_profile_bonus = pending_confidence_bonus(player)
     pending_guard_bonus = pending_tiebreak_guard_bonus(player)
     return int(
@@ -547,6 +560,7 @@ def global_hitter_slot_value(
         + player_priority(player, projections)
         + stay_bonus
         + flexibility_bonus
+        + preservation_bonus
         + pending_superstar_bonus
         + pending_profile_bonus
         + pending_guard_bonus
