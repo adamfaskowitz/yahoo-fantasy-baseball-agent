@@ -27,6 +27,8 @@ def player(
     primary_position: str | None = None,
     position_type: str | None = None,
     yahoo_o_rank: int | None = None,
+    yahoo_average_pick: float | None = None,
+    yahoo_actual_rank_last_week: int | None = None,
     yahoo_percent_started: int | None = None,
     yahoo_percent_owned: int | None = None,
     is_starting_today: bool | None = None,
@@ -51,6 +53,8 @@ def player(
         status=status,
         position_type=position_type,
         yahoo_o_rank=yahoo_o_rank,
+        yahoo_average_pick=yahoo_average_pick,
+        yahoo_actual_rank_last_week=yahoo_actual_rank_last_week,
         yahoo_percent_started=yahoo_percent_started,
         yahoo_percent_owned=yahoo_percent_owned,
         is_starting_today=is_starting_today,
@@ -115,9 +119,88 @@ def expected_signature(plan) -> tuple[str, ...]:
     return tuple(f"{move.player_name}:{move.from_position}->{move.to_position}" for move in plan.moves)
 
 
+SCENARIO_PROJECTIONS = {
+    "Jo Adell": 9.0,
+    "Jordan Westburg": 8.5,
+    "Kevin Gausman": 8.0,
+    "Felix Bautista": 7.0,
+    "Freddy Peralta": 8.8,
+}
+
+
 def scenario_catalog() -> list[Scenario]:
     roster = base_roster()
     cases = [
+        Scenario(
+            name="starting_bohm_replaces_not_starting_naylor",
+            description="A starting bench corner infielder should replace a not-starting active 1B.",
+            roster=replace(
+                roster,
+                players=[
+                    player("1", "Josh Naylor", "1B", ("1B", "Util"), is_starting_today=False, starting_status_reason="not_starting", yahoo_percent_started=74, yahoo_average_pick=110.0, yahoo_actual_rank_last_week=40),
+                    player("2", "Alec Bohm", "BN", ("1B", "3B", "IF", "Util"), is_starting_today=True, starting_status_reason="starting", yahoo_percent_started=37, yahoo_average_pick=140.0, yahoo_actual_rank_last_week=22),
+                ],
+                slot_limits={"1B": 1, "BN": 1},
+            ),
+            expected_moves=("Josh Naylor:1B->BN", "Alec Bohm:BN->1B"),
+            expected_warnings=(),
+        ),
+        Scenario(
+            name="luis_beats_caleb_at_2b_when_both_starting",
+            description="A better 2B profile should keep Luis Arraez active over Caleb Durbin.",
+            roster=replace(
+                roster,
+                players=[
+                    player("1", "Luis Arraez", "2B", ("1B", "2B", "IF", "Util"), is_starting_today=True, starting_status_reason="starting", yahoo_percent_started=34, yahoo_average_pick=197.2, yahoo_actual_rank_last_week=3),
+                    player("2", "Caleb Durbin", "BN", ("2B", "3B", "IF", "Util"), is_starting_today=True, starting_status_reason="starting", yahoo_percent_started=16, yahoo_average_pick=196.7, yahoo_actual_rank_last_week=12),
+                ],
+                slot_limits={"2B": 1, "BN": 1},
+            ),
+            expected_moves=(),
+            expected_warnings=(),
+        ),
+        Scenario(
+            name="elite_pending_ohtani_stays_over_normal_starter",
+            description="An elite pending bat like Ohtani should not be benched for an ordinary confirmed starter.",
+            roster=replace(
+                roster,
+                players=[
+                    player("1", "Shohei Ohtani (Batter)", "Util", ("Util",), display_position="Util", primary_position="Util", is_starting_today=None, starting_status_reason="lineup_pending", yahoo_percent_started=94, yahoo_average_pick=1.8, yahoo_actual_rank_last_week=11),
+                    player("2", "Hunter Goodman", "BN", ("C", "Util"), display_position="C", primary_position="C", is_starting_today=True, starting_status_reason="starting", yahoo_percent_started=94, yahoo_average_pick=82.0, yahoo_actual_rank_last_week=14),
+                ],
+                slot_limits={"Util": 1, "BN": 1},
+            ),
+            expected_moves=(),
+            expected_warnings=(),
+        ),
+        Scenario(
+            name="elite_pending_shea_stays_over_hunter_goodman",
+            description="A very strong pending catcher profile should beat an ordinary confirmed starter.",
+            roster=replace(
+                roster,
+                players=[
+                    player("1", "Shea Langeliers", "C", ("C", "Util"), is_starting_today=None, starting_status_reason="lineup_pending", yahoo_percent_started=97, yahoo_average_pick=64.3, yahoo_actual_rank_last_week=1),
+                    player("2", "Hunter Goodman", "BN", ("C", "Util"), is_starting_today=True, starting_status_reason="starting", yahoo_percent_started=92, yahoo_average_pick=82.0, yahoo_actual_rank_last_week=14),
+                ],
+                slot_limits={"C": 1, "BN": 1},
+            ),
+            expected_moves=(),
+            expected_warnings=(),
+        ),
+        Scenario(
+            name="ordinary_starter_does_not_bench_stronger_pending_of",
+            description="A weak confirmed starter should not displace a stronger pending outfielder just because he is confirmed earlier.",
+            roster=replace(
+                roster,
+                players=[
+                    player("1", "Owen Caissie", "OF", ("CF", "RF", "OF", "Util"), is_starting_today=None, starting_status_reason="lineup_pending", yahoo_percent_started=15, yahoo_average_pick=170.0, yahoo_actual_rank_last_week=19),
+                    player("2", "Carson Benge", "BN", ("RF", "OF", "Util"), is_starting_today=True, starting_status_reason="starting", yahoo_percent_started=7, yahoo_average_pick=260.0, yahoo_actual_rank_last_week=590),
+                ],
+                slot_limits={"OF": 1, "BN": 1},
+            ),
+            expected_moves=(),
+            expected_warnings=(),
+        ),
         Scenario(
             name="baseline",
             description="Historical-style roster with the default conservative swaps.",
@@ -129,6 +212,8 @@ def scenario_catalog() -> list[Scenario]:
                 "Kevin Gausman:BN->SP",
                 "Jonah Tong:P->BN",
                 "Felix Bautista:BN->P",
+                "Jackson Chourio:RF->BN",
+                "Jo Adell:BN->RF",
             ),
             expected_warnings=(
                 "No eligible starting replacement found for William Contreras at C.",
@@ -173,7 +258,7 @@ def scenario_catalog() -> list[Scenario]:
                     "Felix Bautista": {"starting_status_reason": "inactive_slot"},
                 },
             ),
-            expected_moves=("Gleyber Torres:2B->BN", "Jordan Westburg:BN->2B"),
+            expected_moves=("Gleyber Torres:2B->BN", "Jordan Westburg:BN->2B", "Jackson Chourio:RF->BN", "Jo Adell:BN->RF"),
             expected_warnings=("No eligible starting replacement found for William Contreras at C.",),
         ),
         Scenario(
@@ -210,15 +295,15 @@ def scenario_catalog() -> list[Scenario]:
             ),
         ),
         Scenario(
-            name="o_rank_star_upgrade",
-            description="A higher-ranked star on the bench should replace a lower-ranked starter even when both are starting.",
+            name="ranked_star_upgrade",
+            description="A stronger ranked star on the bench should replace a weaker active hitter even when both are starting.",
             roster=roster_with_updates(
                 roster,
                 {
                     "William Contreras": {"is_starting_today": True, "starting_status_reason": "starting"},
-                    "Gleyber Torres": {"selected_position": "IF", "is_starting_today": True, "starting_status_reason": "starting"},
-                    "Francisco Lindor": {"selected_position": "SS", "is_starting_today": True, "starting_status_reason": "starting", "yahoo_o_rank": 42},
-                    "Elly De La Cruz": {"selected_position": "BN", "is_starting_today": True, "starting_status_reason": "starting", "yahoo_o_rank": 5},
+                    "Gleyber Torres": {"selected_position": "IF", "is_starting_today": True, "starting_status_reason": "starting", "yahoo_percent_started": 40, "yahoo_average_pick": 180.0, "yahoo_actual_rank_last_week": 35},
+                    "Francisco Lindor": {"selected_position": "SS", "is_starting_today": True, "starting_status_reason": "starting", "yahoo_percent_started": 90, "yahoo_average_pick": 18.0, "yahoo_actual_rank_last_week": 6},
+                    "Elly De La Cruz": {"selected_position": "BN", "is_starting_today": True, "starting_status_reason": "starting", "yahoo_percent_started": 98, "yahoo_average_pick": 5.0, "yahoo_actual_rank_last_week": 1},
                     "Jordan Westburg": {"selected_position": "2B", "is_starting_today": True, "starting_status_reason": "starting"},
                     "Hunter Brown": {"is_starting_today": True, "starting_status_reason": "starting"},
                     "Jacob deGrom": {"is_starting_today": True, "starting_status_reason": "starting"},
@@ -229,7 +314,7 @@ def scenario_catalog() -> list[Scenario]:
                     "Felix Bautista": {"starting_status_reason": "inactive_slot"},
                 },
             ),
-            expected_moves=("Gleyber Torres:IF->BN", "Elly De La Cruz:BN->IF"),
+            expected_moves=("Jordan Westburg:2B->BN", "Gleyber Torres:IF->2B", "Elly De La Cruz:BN->IF"),
         ),
         Scenario(
             name="catcher_warning_only",
@@ -245,7 +330,7 @@ def scenario_catalog() -> list[Scenario]:
                     "Daniel Palencia": {"selected_position": "BN"},
                 },
             ),
-            expected_moves=("Felix Bautista:BN->RP", "Kevin Gausman:BN->P"),
+            expected_moves=("Felix Bautista:BN->RP", "Kevin Gausman:BN->P", "Jackson Chourio:RF->BN", "Jo Adell:BN->RF"),
             expected_warnings=("No eligible starting replacement found for William Contreras at C.",),
         ),
         Scenario(
@@ -281,6 +366,8 @@ def scenario_catalog() -> list[Scenario]:
                 "Kevin Gausman:BN->SP",
                 "Jonah Tong:P->BN",
                 "Felix Bautista:BN->P",
+                "Jackson Chourio:RF->BN",
+                "Jo Adell:BN->RF",
             ),
             expected_warnings=(
                 "No eligible starting replacement found for William Contreras at C.",
@@ -298,6 +385,8 @@ def scenario_catalog() -> list[Scenario]:
                 "Kevin Gausman:BN->SP",
                 "Jonah Tong:P->BN",
                 "Felix Bautista:BN->P",
+                "Jackson Chourio:RF->BN",
+                "Jo Adell:BN->RF",
             ),
             expected_warnings=(
                 "No eligible starting replacement found for William Contreras at C.",
@@ -320,7 +409,7 @@ def scenario_catalog() -> list[Scenario]:
                     "Gleyber Torres": {"is_starting_today": True, "starting_status_reason": "starting"},
                 },
             ),
-            expected_moves=("Jonah Tong:P->BN", "Felix Bautista:BN->P"),
+            expected_moves=("Jonah Tong:P->BN", "Felix Bautista:BN->P", "Jackson Chourio:RF->BN", "Jo Adell:BN->RF"),
             expected_warnings=("No eligible starting replacement found for William Contreras at C.",),
         ),
         Scenario(
@@ -334,6 +423,8 @@ def scenario_catalog() -> list[Scenario]:
                 "Kevin Gausman:BN->SP",
                 "Jonah Tong:P->BN",
                 "Felix Bautista:BN->P",
+                "Jackson Chourio:RF->BN",
+                "Jo Adell:BN->RF",
             ),
             expected_warnings=(
                 "No eligible starting replacement found for William Contreras at C.",
@@ -356,7 +447,7 @@ def scenario_catalog() -> list[Scenario]:
                     "Jonah Tong": {"is_starting_today": True, "starting_status_reason": "starting"},
                 },
             ),
-            expected_moves=("Elly De La Cruz:IF->BN", "Jordan Westburg:BN->IF", "Felix Bautista:BN->RP"),
+            expected_moves=("Elly De La Cruz:IF->BN", "Jordan Westburg:BN->IF", "Felix Bautista:BN->RP", "Jackson Chourio:RF->BN", "Jo Adell:BN->RF"),
             expected_warnings=("No eligible starting replacement found for William Contreras at C.",),
         ),
         Scenario(
@@ -425,7 +516,7 @@ def scenario_catalog() -> list[Scenario]:
             description="Once the plan is applied, the optimizer should not propose the same swaps again.",
             roster=apply_plan_to_roster(
                 roster,
-                optimize_lineup(roster),
+                optimize_lineup(roster, SCENARIO_PROJECTIONS),
             ),
             expected_moves=(),
             expected_warnings=(
@@ -476,6 +567,8 @@ def scenario_catalog() -> list[Scenario]:
                 "Kevin Gausman:BN->SP",
                 "Jonah Tong:P->BN",
                 "Felix Bautista:BN->P",
+                "Jackson Chourio:RF->BN",
+                "Jo Adell:BN->RF",
             ),
             expected_warnings=(
                 "No eligible starting replacement found for William Contreras at C.",
@@ -495,7 +588,7 @@ def scenario_catalog() -> list[Scenario]:
                     "Jonah Tong": {"is_starting_today": None, "starting_status_reason": "lineup_pending"},
                 },
             ),
-            expected_moves=("Jacob deGrom:SP->BN", "Kevin Gausman:BN->SP", "Felix Bautista:BN->RP"),
+            expected_moves=("Jacob deGrom:SP->BN", "Kevin Gausman:BN->SP", "Felix Bautista:BN->RP", "Jackson Chourio:RF->BN", "Jo Adell:BN->RF"),
             expected_warnings=(
                 "No eligible starting replacement found for William Contreras at C.",
                 "No eligible starting replacement found for Parker Messick at SP.",
@@ -543,7 +636,7 @@ def scenario_catalog() -> list[Scenario]:
                 ],
                 slot_limits={"CF": 1, "OF": 1, "BN": 1},
             ),
-            expected_moves=("Pending OF:CF->BN", "Confirmed CF:OF->CF", "Bench LF:BN->OF"),
+            expected_moves=("Confirmed CF:OF->BN", "Bench LF:BN->OF"),
             expected_warnings=(),
         ),
         Scenario(
@@ -574,7 +667,7 @@ def scenario_catalog() -> list[Scenario]:
                     "Jonah Tong": {"is_starting_today": True, "starting_status_reason": "starting"},
                 },
             ),
-            expected_moves=("Felix Bautista:BN->RP",),
+            expected_moves=("Felix Bautista:BN->RP", "Jackson Chourio:RF->BN", "Jo Adell:BN->RF"),
             expected_warnings=(
                 "No eligible starting replacement found for William Contreras at C.",
                 "Wyatt Langford is locked at CF; no change attempted.",
@@ -594,7 +687,7 @@ def scenario_catalog() -> list[Scenario]:
                     "Gleyber Torres": {"is_starting_today": True, "starting_status_reason": "starting"},
                 },
             ),
-            expected_moves=(),
+            expected_moves=("Jackson Chourio:RF->BN", "Jo Adell:BN->RF"),
             expected_warnings=(
                 "No eligible starting replacement found for William Contreras at C.",
                 "No eligible starting replacement found for Jonah Tong at P.",
@@ -619,7 +712,7 @@ def scenario_catalog() -> list[Scenario]:
                     "Kevin Gausman": {"is_starting_today": False, "starting_status_reason": "not_starting"},
                 },
             ),
-            expected_moves=("Gleyber Torres:IF->BN", "Elly De La Cruz:BN->IF"),
+            expected_moves=("Gleyber Torres:IF->BN", "Elly De La Cruz:BN->IF", "Jackson Chourio:RF->BN", "Jo Adell:BN->RF"),
         ),
         Scenario(
             name="locked_sp_bad_slot_no_move",
@@ -635,22 +728,22 @@ def scenario_catalog() -> list[Scenario]:
                     "Jonah Tong": {"is_starting_today": True, "starting_status_reason": "starting"},
                 },
             ),
-            expected_moves=("Jacob deGrom:SP->BN", "Kevin Gausman:BN->SP", "Felix Bautista:BN->RP"),
+            expected_moves=("Jacob deGrom:SP->BN", "Kevin Gausman:BN->SP", "Felix Bautista:BN->RP", "Jackson Chourio:RF->BN", "Jo Adell:BN->RF"),
             expected_warnings=(
                 "No eligible starting replacement found for William Contreras at C.",
                 "Hunter Brown is locked at SP; no change attempted.",
             ),
         ),
         Scenario(
-            name="locked_bench_star_blocks_orank_upgrade",
-            description="A locked bench star should not trigger an O-Rank upgrade.",
+            name="locked_bench_star_blocks_rank_upgrade",
+            description="A locked bench star should not trigger a rank-based upgrade.",
             roster=roster_with_updates(
                 roster,
                 {
                     "William Contreras": {"is_starting_today": True, "starting_status_reason": "starting"},
-                    "Gleyber Torres": {"selected_position": "IF", "is_starting_today": True, "starting_status_reason": "starting", "yahoo_o_rank": 80},
-                    "Francisco Lindor": {"selected_position": "SS", "is_starting_today": True, "starting_status_reason": "starting", "yahoo_o_rank": 20},
-                    "Elly De La Cruz": {"selected_position": "BN", "is_starting_today": True, "starting_status_reason": "starting", "yahoo_o_rank": 5, "is_locked": True},
+                    "Gleyber Torres": {"selected_position": "IF", "is_starting_today": True, "starting_status_reason": "starting", "yahoo_percent_started": 40, "yahoo_average_pick": 180.0, "yahoo_actual_rank_last_week": 35},
+                    "Francisco Lindor": {"selected_position": "SS", "is_starting_today": True, "starting_status_reason": "starting", "yahoo_percent_started": 90, "yahoo_average_pick": 18.0, "yahoo_actual_rank_last_week": 6},
+                    "Elly De La Cruz": {"selected_position": "BN", "is_starting_today": True, "starting_status_reason": "starting", "yahoo_percent_started": 98, "yahoo_average_pick": 5.0, "yahoo_actual_rank_last_week": 1, "is_locked": True},
                     "Jordan Westburg": {"selected_position": "2B", "is_starting_today": True, "starting_status_reason": "starting"},
                     "Hunter Brown": {"is_starting_today": True, "starting_status_reason": "starting"},
                     "Jacob deGrom": {"is_starting_today": True, "starting_status_reason": "starting"},
@@ -660,7 +753,7 @@ def scenario_catalog() -> list[Scenario]:
                     "Kevin Gausman": {"is_starting_today": False, "starting_status_reason": "not_starting"},
                 },
             ),
-            expected_moves=(),
+            expected_moves=("Jackson Chourio:RF->BN", "Jo Adell:BN->RF"),
         ),
         Scenario(
             name="projection_tiebreak_for_sp",
@@ -677,17 +770,8 @@ def scenario_catalog() -> list[Scenario]:
                     "Jonah Tong": {"is_starting_today": True, "starting_status_reason": "starting"},
                 },
             ),
-            expected_moves=("Hunter Brown:SP->BN", "Freddy Peralta:BN->SP", "Felix Bautista:BN->RP"),
+            expected_moves=("Hunter Brown:SP->BN", "Freddy Peralta:BN->SP", "Felix Bautista:BN->RP", "Jackson Chourio:RF->BN", "Jo Adell:BN->RF"),
             expected_warnings=("No eligible starting replacement found for William Contreras at C.",),
         ),
     ]
     return cases
-
-
-SCENARIO_PROJECTIONS = {
-    "Jo Adell": 9.0,
-    "Jordan Westburg": 8.5,
-    "Kevin Gausman": 8.0,
-    "Felix Bautista": 7.0,
-    "Freddy Peralta": 8.8,
-}

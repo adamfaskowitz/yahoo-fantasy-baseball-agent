@@ -79,7 +79,9 @@ def describe_starting_status(player: Player) -> str:
 
 def player_priority(player: Player, projections: dict[str, float]) -> float:
     projection = projections.get(player.player_key, projections.get(player.name, 0.0))
-    starting_bonus = 120 if player.is_starting_today else 0
+    # Hitter start state is already modeled in the global hitter status bucket,
+    # so avoid double-counting it here. Keep the starter bonus for pitchers.
+    starting_bonus = 120 if player.is_starting_today and (player.position_type or "").upper() == "P" else 0
     reliever_bonus = 30 if player.starting_status_reason == "reliever" else 0
     locked_penalty = -500 if player.is_locked else 0
     return projection + starting_bonus + reliever_bonus + locked_penalty
@@ -167,7 +169,9 @@ def player_can_replace(active_player: Player | None, replacement_player: Player)
         return True
     return (
         active_player is not None
-        and active_player.starting_status_reason == "no_game"
+        and (active_player.starting_status_reason == "no_game" or active_player.is_starting_today is False)
+        and (active_player.position_type or "").upper() == "B"
+        and (replacement_player.position_type or "").upper() == "B"
         and replacement_player.starting_status_reason == "lineup_pending"
     )
 
@@ -209,6 +213,7 @@ def upgrade_insertion_reason(player: Player, displaced_player: Player, target_po
             and displaced_player.yahoo_average_pick is not None
             and player.yahoo_actual_rank_last_week is not None
             and displaced_player.yahoo_actual_rank_last_week is not None
+            and starting_tiebreak_score(player) > starting_tiebreak_score(displaced_player)
         ):
             return (
                 f"Starting today and better Yahoo tie-break profile "
@@ -262,6 +267,60 @@ def starting_tiebreak_score(player: Player) -> int:
     average_pick = normalized_average_pick_score(player)
     actual_rank = normalized_actual_rank_last_week_score(player)
     return percent_started + average_pick + actual_rank
+
+
+def elite_pending_hitter_bonus(player: Player) -> int:
+    if (player.position_type or "").upper() != "B":
+        return 0
+    if player.starting_status_reason != "lineup_pending":
+        return 0
+    if player.yahoo_average_pick is None or (player.yahoo_percent_started or 0) < 85:
+        return 0
+    if player.yahoo_average_pick <= 5:
+        return 450
+    if player.yahoo_average_pick <= 15:
+        return 250
+    if player.yahoo_average_pick <= 30:
+        return 125
+    return 0
+
+
+def pending_confidence_bonus(player: Player) -> int:
+    if (player.position_type or "").upper() != "B":
+        return 0
+    if player.starting_status_reason != "lineup_pending":
+        return 0
+
+    percent_started = player.yahoo_percent_started or 0
+    actual_rank_score = normalized_actual_rank_last_week_score(player)
+    average_pick_score = normalized_average_pick_score(player)
+
+    bonus = 0
+    if percent_started >= 85:
+        bonus += (percent_started - 85) * 8
+    if actual_rank_score >= 50:
+        bonus += (actual_rank_score - 50) * 4
+    if average_pick_score >= 70:
+        bonus += (average_pick_score - 70) * 2
+    return bonus
+
+
+def pending_tiebreak_guard_bonus(player: Player) -> int:
+    if (player.position_type or "").upper() != "B":
+        return 0
+    if player.starting_status_reason != "lineup_pending":
+        return 0
+
+    tiebreak = starting_tiebreak_score(player)
+    if tiebreak >= 220:
+        return 350
+    if tiebreak >= 180:
+        return 250
+    if tiebreak >= 140:
+        return 150
+    if tiebreak >= 90:
+        return 260
+    return 0
 
 
 def unresolved_warning(player: Player) -> str | None:
@@ -464,12 +523,18 @@ def global_hitter_slot_value(
     stay_bonus = 8 if player.selected_position == slot_name else 0
     flexibility_bonus = slot_flexibility_bonus(player, slot_name)
     matchup_adjustment = matchup_adjustments.get(player.player_key, 0)
+    pending_superstar_bonus = elite_pending_hitter_bonus(player)
+    pending_profile_bonus = pending_confidence_bonus(player)
+    pending_guard_bonus = pending_tiebreak_guard_bonus(player)
     return int(
         status_score
         + tiebreak_score
         + player_priority(player, projections)
         + stay_bonus
         + flexibility_bonus
+        + pending_superstar_bonus
+        + pending_profile_bonus
+        + pending_guard_bonus
         + matchup_adjustment
     )
 
