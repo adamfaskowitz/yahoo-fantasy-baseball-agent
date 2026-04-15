@@ -202,6 +202,38 @@ def scenario_catalog() -> list[Scenario]:
             expected_warnings=(),
         ),
         Scenario(
+            name="ohtani_takes_util_shea_slides_to_c_jordan_stays_in",
+            description="When Ohtani reclaims Util, Shea should slide to C over Hunter Goodman, and Jordan Walker should stay active over weaker pending outfield reshuffles.",
+            roster=replace(
+                roster,
+                players=[
+                    player("1", "Hunter Goodman", "C", ("C", "Util"), is_starting_today=None, starting_status_reason="lineup_pending", yahoo_percent_started=95, yahoo_average_pick=78.0, yahoo_actual_rank_last_week=25),
+                    player("2", "Alec Bohm", "1B", ("1B", "3B", "IF", "Util"), is_starting_today=None, starting_status_reason="lineup_pending", yahoo_percent_started=22, yahoo_average_pick=168.0, yahoo_actual_rank_last_week=70),
+                    player("3", "Luis Arraez", "2B", ("1B", "2B", "IF", "Util"), is_starting_today=None, starting_status_reason="lineup_pending", yahoo_percent_started=40, yahoo_average_pick=267.0, yahoo_actual_rank_last_week=45),
+                    player("4", "Colt Keith", "3B", ("1B", "2B", "3B", "IF", "Util"), is_starting_today=None, starting_status_reason="lineup_pending", yahoo_percent_started=25, yahoo_average_pick=275.0, yahoo_actual_rank_last_week=80),
+                    player("5", "Elly De La Cruz", "SS", ("SS", "IF", "Util"), is_starting_today=None, starting_status_reason="lineup_pending", yahoo_percent_started=98, yahoo_average_pick=8.0, yahoo_actual_rank_last_week=8),
+                    player("6", "Zach Neto", "IF", ("SS", "IF", "Util"), is_starting_today=None, starting_status_reason="lineup_pending", yahoo_percent_started=83, yahoo_average_pick=24.0, yahoo_actual_rank_last_week=24),
+                    player("7", "Wyatt Langford", "LF", ("LF", "CF", "OF", "Util"), is_starting_today=None, starting_status_reason="lineup_pending", yahoo_percent_started=70, yahoo_average_pick=21.0, yahoo_actual_rank_last_week=21),
+                    player("8", "Owen Caissie", "CF", ("CF", "RF", "OF", "Util"), is_starting_today=None, starting_status_reason="lineup_pending", yahoo_percent_started=22, yahoo_average_pick=338.0, yahoo_actual_rank_last_week=35),
+                    player("9", "Jordan Walker", "RF", ("LF", "RF", "OF", "Util"), is_starting_today=None, starting_status_reason="lineup_pending", yahoo_percent_started=42, yahoo_average_pick=352.0, yahoo_actual_rank_last_week=18),
+                    player("10", "Carson Benge", "OF", ("RF", "OF", "Util"), is_starting_today=None, starting_status_reason="lineup_pending", yahoo_percent_started=16, yahoo_average_pick=313.0, yahoo_actual_rank_last_week=60),
+                    player("11", "Shea Langeliers", "Util", ("C", "Util"), is_starting_today=None, starting_status_reason="lineup_pending", yahoo_percent_started=96, yahoo_average_pick=70.0, yahoo_actual_rank_last_week=1),
+                    player("12", "Pete Crow-Armstrong", "BN", ("CF", "OF", "Util"), is_starting_today=None, starting_status_reason="lineup_pending", yahoo_percent_started=83, yahoo_average_pick=46.0, yahoo_actual_rank_last_week=20),
+                    player("13", "Shohei Ohtani (Batter)", "BN", ("Util",), display_position="Util", primary_position="Util", is_starting_today=None, starting_status_reason="lineup_pending", yahoo_percent_started=86, yahoo_average_pick=1.0, yahoo_actual_rank_last_week=11),
+                    player("14", "Josh Naylor", "BN", ("1B", "Util"), is_starting_today=None, starting_status_reason="lineup_pending", yahoo_percent_started=60, yahoo_average_pick=53.0, yahoo_actual_rank_last_week=40),
+                ],
+                slot_limits={"C": 1, "1B": 1, "2B": 1, "3B": 1, "SS": 1, "IF": 1, "LF": 1, "CF": 1, "RF": 1, "OF": 1, "Util": 1, "BN": 4},
+            ),
+            expected_moves=(
+                "Hunter Goodman:C->BN",
+                "Owen Caissie:CF->RF",
+                "Shea Langeliers:Util->C",
+                "Pete Crow-Armstrong:BN->CF",
+                "Shohei Ohtani (Batter):BN->Util",
+            ),
+            expected_warnings=(),
+        ),
+        Scenario(
             name="corner_infielder_can_fill_ci",
             description="A 1B/3B bat should be able to fill a CI slot in the roto league shape.",
             roster=replace(

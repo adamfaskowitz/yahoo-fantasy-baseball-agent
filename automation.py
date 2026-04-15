@@ -134,7 +134,7 @@ def main() -> int:
         )
         save_state(state)
 
-    should_send_email = args.email and (plan.has_changes or args.force)
+    should_send_email = args.email
 
     if should_send_email:
         email_config = load_email_config()
@@ -163,8 +163,6 @@ def main() -> int:
         )
         send_email_report(config=email_config, subject=subject, body=body, html_body=html_body)
         print("Email report sent.")
-    elif args.email:
-        print("No email sent because no moves were proposed and this was not a forced/manual run.")
 
     return 0
 

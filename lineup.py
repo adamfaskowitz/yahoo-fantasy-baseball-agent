@@ -350,6 +350,21 @@ def pending_tiebreak_guard_bonus(player: Player) -> int:
     return 0
 
 
+def pending_incumbent_bonus(player: Player) -> int:
+    if (player.position_type or "").upper() != "B":
+        return 0
+    if player.starting_status_reason != "lineup_pending":
+        return 0
+    if is_bench_position(player.selected_position):
+        return 0
+    tiebreak = starting_tiebreak_score(player)
+    if tiebreak >= 180:
+        return 175
+    if tiebreak >= 140:
+        return 100
+    return 0
+
+
 def unresolved_warning(player: Player) -> str | None:
     if is_bench_position(player.selected_position):
         return None
@@ -554,6 +569,7 @@ def global_hitter_slot_value(
     preservation_bonus = superstar_hitter_preservation_bonus(player)
     pending_profile_bonus = pending_confidence_bonus(player)
     pending_guard_bonus = pending_tiebreak_guard_bonus(player)
+    incumbent_bonus = pending_incumbent_bonus(player)
     return int(
         status_score
         + tiebreak_score
@@ -564,6 +580,7 @@ def global_hitter_slot_value(
         + pending_superstar_bonus
         + pending_profile_bonus
         + pending_guard_bonus
+        + incumbent_bonus
         + matchup_adjustment
     )
 
