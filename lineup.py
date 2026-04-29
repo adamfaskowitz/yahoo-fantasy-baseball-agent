@@ -21,6 +21,7 @@ STATUS_LABELS = {
     "team_unmapped": "team unmapped",
     "player_unmapped": "player unmapped",
     "inactive_slot": "inactive slot",
+    "inactive_status": "inactive status",
 }
 DEFAULT_SLOT_LIMITS = {
     "C": 1,
@@ -99,6 +100,7 @@ def lineup_value(player: Player, projections: dict[str, float], target_position:
         "not_starting": 0,
         "no_game": -100,
         "inactive_slot": -5_000,
+        "inactive_status": -5_000,
     }
     status_key = (
         "starting"

@@ -8,7 +8,6 @@ from pathlib import Path
 
 import requests
 
-from lineup import is_bench_position
 from models import Player, RosterSnapshot
 
 MLB_BASE = "https://statsapi.mlb.com/api/v1"
@@ -78,6 +77,7 @@ STATUS_LABELS = {
     "team_unmapped": "team unmapped",
     "player_unmapped": "player unmapped",
     "inactive_slot": "inactive slot",
+    "inactive_status": "inactive status",
 }
 
 
@@ -378,13 +378,15 @@ def yahoo_player_is_starting(
     date_str: str,
     verbose: bool = False,
 ) -> tuple[bool | None, str]:
+    if player.status in {"IL10", "IL15", "IL60", "NA"}:
+        return _status_result(None, "inactive_status")
+
     if not player.editorial_team_abbr or player.editorial_team_abbr not in TEAM_ABBR_TO_MLB_ID:
         _log(verbose, f"Could not map team abbreviation for {player.name}: {player.editorial_team_abbr}")
         return _status_result(None, "team_unmapped")
 
-    if player.status in {"IL10", "IL15", "IL60", "NA"} or is_bench_position(player.selected_position):
-        if player.selected_position in {"IL", "NA"}:
-            return _status_result(None, "inactive_slot")
+    if player.selected_position in {"IL", "NA"}:
+        return _status_result(None, "inactive_slot")
 
     mlb_team_id = TEAM_ABBR_TO_MLB_ID[player.editorial_team_abbr]
     game = get_team_game(date_str, mlb_team_id)
