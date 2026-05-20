@@ -84,7 +84,7 @@ def main() -> int:
     now_local = resolve_now(args.now)
     config = load_config(lineup_date=args.date, apply_changes=args.apply)
 
-    trigger_time = should_run_now(config.lineup_date, now_local)
+    trigger_time = None if args.force else should_run_now(config.lineup_date, now_local)
     if trigger_time is None and not args.force:
         windows = ", ".join(format_trigger_label(window) for window in compute_trigger_windows(config.lineup_date))
         print(f"Skipping run at {now_local.isoformat()}: no trigger window matched within the grace period.")
