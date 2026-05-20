@@ -5,8 +5,7 @@ permissions:
 
 "on":
   schedule:
-    # Poll once an hour at :30, which aligns with the "30 minutes before the
-    # unique starting hour" trigger windows computed in automation.py.
+    # Run once an hour during the broad local daytime window.
     # GitHub cron is UTC, so a local-time guard below handles DST accurately.
     - cron: "30 15-23,0-3 * * *"
   workflow_dispatch:
@@ -140,7 +139,7 @@ jobs:
           python automation.py
           --apply
           --email
-          ${{ ((github.event_name == 'workflow_dispatch' && inputs.force_run) || env.FORCE_RUN == 'true') && '--force' || '' }}
+          ${{ ((github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && inputs.force_run) || env.FORCE_RUN == 'true') && '--force' || '' }}
 
       - name: Persist automation state
         if: ${{ always() && (github.event_name != 'workflow_dispatch' || inputs.league_target == 'all' || inputs.league_target == matrix.league.slug) }}

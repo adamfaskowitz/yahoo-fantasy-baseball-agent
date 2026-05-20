@@ -18,6 +18,7 @@ from reporting import (
 from yahoo_api import YahooFantasyClient
 
 LOCAL_TZ = ZoneInfo("America/Los_Angeles")
+TRIGGER_GRACE_PERIOD = timedelta(hours=1)
 
 
 def floor_to_hour(dt: datetime) -> datetime:
@@ -48,9 +49,8 @@ def format_trigger_label(trigger_time: datetime) -> str:
 
 
 def should_run_now(lineup_date: str, now_local: datetime) -> datetime | None:
-    current_bucket = floor_to_half_hour(now_local)
     for trigger_time in compute_trigger_windows(lineup_date):
-        if trigger_time == current_bucket:
+        if trigger_time <= now_local < trigger_time + TRIGGER_GRACE_PERIOD:
             return trigger_time
     return None
 
@@ -87,7 +87,7 @@ def main() -> int:
     trigger_time = should_run_now(config.lineup_date, now_local)
     if trigger_time is None and not args.force:
         windows = ", ".join(format_trigger_label(window) for window in compute_trigger_windows(config.lineup_date))
-        print(f"Skipping run at {now_local.isoformat()}: no trigger window matched.")
+        print(f"Skipping run at {now_local.isoformat()}: no trigger window matched within the grace period.")
         print(f"Today's trigger windows: {windows or 'none'}")
         return 0
 

@@ -79,9 +79,8 @@ If you manually change a slot afterward, later runs can detect that divergence a
 
 The GitHub Actions workflow:
 
-- polls hourly at `:30`
-- computes the real trigger windows for that day from MLB start times
-- runs only when a trigger window matches
+- runs hourly at `:30` during the local daytime window
+- bypasses Python trigger-window gating for scheduled runs so delayed GitHub jobs still act
 - runs both configured leagues
 - sends email reports
 - performs a final evening run for the next day
@@ -223,6 +222,7 @@ Repository secrets required for scheduled automation:
 Behavior notes:
 
 - scheduled runs can apply changes automatically
+- scheduled daytime runs are forced through the automation path instead of depending on exact MLB trigger-window timing
 - reports are emailed through SMTP
 - a final evening run can prepare the next day’s lineup
 - the workflow persists state to an `automation-state` branch
