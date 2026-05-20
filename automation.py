@@ -67,6 +67,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--apply", action="store_true", help="Apply lineup changes to Yahoo.")
     parser.add_argument("--verbose", action="store_true", help="Print MLB enrichment debug logs.")
     parser.add_argument("--email", action="store_true", help="Send an email report if SMTP is configured.")
+    parser.add_argument(
+        "--email-always",
+        action="store_true",
+        help="Send an email report even when no moves are proposed.",
+    )
     return parser.parse_args()
 
 
@@ -134,7 +139,7 @@ def main() -> int:
         )
         save_state(state)
 
-    should_send_email = args.email
+    should_send_email = args.email and (plan.has_changes or args.email_always)
 
     if should_send_email:
         email_config = load_email_config()
@@ -163,6 +168,8 @@ def main() -> int:
         )
         send_email_report(config=email_config, subject=subject, body=body, html_body=html_body)
         print("Email report sent.")
+    elif args.email:
+        print("No email sent because no moves were proposed.")
 
     return 0
 

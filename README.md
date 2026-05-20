@@ -82,8 +82,8 @@ The GitHub Actions workflow:
 - runs hourly at `:30` during the local daytime window
 - bypasses Python trigger-window gating for scheduled runs so delayed GitHub jobs still act
 - runs both configured leagues
-- sends email reports
-- performs a final evening run for the next day
+- sends email reports when moves are proposed
+- performs a final `8:30 PM` local run for the next day
 
 ## Architecture
 
@@ -179,13 +179,13 @@ python main.py --date 2026-04-29 --apply
 Run the scheduled automation path manually:
 
 ```bash
-python automation.py --date 2026-04-29 --force --email
+python automation.py --date 2026-04-29 --force --email --email-always
 ```
 
 Apply via the automation path:
 
 ```bash
-python automation.py --date 2026-04-29 --force --apply --email
+python automation.py --date 2026-04-29 --force --apply --email --email-always
 ```
 
 Useful flags:
@@ -193,6 +193,7 @@ Useful flags:
 - `--verbose`: print MLB enrichment/debug output
 - `--show-raw`: print the raw roster snapshot in `main.py`
 - `--force`: bypass trigger-window gating in `automation.py`
+- `--email-always`: send a report even when no moves are proposed
 
 ## GitHub Actions
 
@@ -223,8 +224,9 @@ Behavior notes:
 
 - scheduled runs can apply changes automatically
 - scheduled daytime runs are forced through the automation path instead of depending on exact MLB trigger-window timing
-- reports are emailed through SMTP
-- a final evening run can prepare the next day’s lineup
+- scheduled reports are emailed through SMTP only when moves are proposed
+- manual workflow runs include reports even when no moves are proposed
+- the `8:30 PM` local scheduled run prepares the next day’s lineup
 - the workflow persists state to an `automation-state` branch
 
 ## Testing / Regression Coverage

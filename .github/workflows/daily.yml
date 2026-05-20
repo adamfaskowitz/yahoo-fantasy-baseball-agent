@@ -104,6 +104,7 @@ jobs:
             echo "FORCE_RUN=false" >> "$GITHUB_ENV"
           else
             LOCAL_HOUR=$(date +%H)
+            # The final scheduled run of the day prepares tomorrow's lineup.
             if [ "${{ github.event_name }}" != "workflow_dispatch" ] && [ "$LOCAL_HOUR" -eq 20 ]; then
               echo "YAHOO_LINEUP_DATE=$(date -d tomorrow +%F)" >> "$GITHUB_ENV"
               echo "FORCE_RUN=true" >> "$GITHUB_ENV"
@@ -131,6 +132,7 @@ jobs:
         run: >
           python automation.py
           --email
+          --email-always
           ${{ (inputs.force_run || env.FORCE_RUN == 'true') && '--force' || '' }}
 
       - name: Apply lineup changes
@@ -139,6 +141,7 @@ jobs:
           python automation.py
           --apply
           --email
+          ${{ github.event_name == 'workflow_dispatch' && '--email-always' || '' }}
           ${{ ((github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && inputs.force_run) || env.FORCE_RUN == 'true') && '--force' || '' }}
 
       - name: Persist automation state
