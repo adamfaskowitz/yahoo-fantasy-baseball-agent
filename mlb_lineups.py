@@ -356,21 +356,26 @@ def get_pitcher_role(mlb_person_id: str, season: int) -> str | None:
         return None
 
     stat_line = splits[0].get("stat") or {}
+    role = infer_pitcher_role_from_stat_line(stat_line)
+
+    _PITCHER_ROLE_CACHE[cache_key] = role
+    return role
+
+
+def infer_pitcher_role_from_stat_line(stat_line: dict) -> str | None:
     starts = int(stat_line.get("gamesStarted") or 0)
     appearances = int(stat_line.get("gamesPlayed") or 0)
     saves = int(stat_line.get("saves") or 0)
     holds = int(stat_line.get("holds") or 0)
+    relief_appearances = max(0, appearances - starts)
 
-    role = None
-    if starts == 0 and appearances > 0:
-        role = "reliever"
-    elif saves + holds > 0 and starts == 0:
-        role = "reliever"
-    elif starts > 0:
-        role = "starter"
-
-    _PITCHER_ROLE_CACHE[cache_key] = role
-    return role
+    if saves + holds > 0:
+        return "reliever"
+    if relief_appearances > starts:
+        return "reliever"
+    if starts > 0:
+        return "starter"
+    return None
 
 
 def yahoo_player_is_starting(
