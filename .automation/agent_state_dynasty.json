@@ -101,9 +101,11 @@
         "OF": "469.p.61637",
         "P": "469.p.10489",
         "SS": "469.p.11284",
-        "Util": "469.p.10626"
+        "Util": "469.p.60309"
       },
-      "manual_frozen_slots": []
+      "manual_frozen_slots": [
+        "Util"
+      ]
     }
   }
 }
