@@ -60,7 +60,7 @@ jobs:
       YAHOO_REFRESH_TOKEN: ${{ secrets.YAHOO_REFRESH_TOKEN }}
       YAHOO_TEAM_KEY: ${{ matrix.league.slug == 'primary' && secrets.YAHOO_TEAM_KEY || '469.l.174916.t.7' }}
       YAHOO_LEAGUE_PROFILE: ${{ matrix.league.profile }}
-      YAHOO_REDIRECT_URI: oob
+      YAHOO_REDIRECT_URI: https://localhost:8080
       YAHOO_OPEN_AUTH_BROWSER: "false"
       AUTOMATION_STATE_PATH: ${{ matrix.league.state_file }}
       SMTP_HOST: ${{ secrets.SMTP_HOST }}
