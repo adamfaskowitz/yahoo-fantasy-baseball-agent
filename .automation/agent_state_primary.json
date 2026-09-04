@@ -129,9 +129,11 @@
         "RP": "469.p.12311",
         "SP": "469.p.11327",
         "SS": "469.p.12393",
-        "Util": "469.p.1000001"
+        "Util": "469.p.12548"
       },
-      "manual_frozen_slots": []
+      "manual_frozen_slots": [
+        "Util"
+      ]
     }
   }
 }
