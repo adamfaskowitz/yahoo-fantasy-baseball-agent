@@ -4,10 +4,13 @@ import argparse
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from requests import HTTPError
+
 from automation_state import detect_manual_override_slots, load_state, save_state, update_state_for_lineup
 from config import load_config
 from lineup import optimize_lineup, render_plan, render_roster
 from mlb_lineups import clear_caches, enrich_roster_with_starting_status, get_schedule_for_date
+from models import PlannedMove
 from reporting import (
     build_html_report,
     build_report_body,
@@ -84,6 +87,24 @@ def resolve_now(now_arg: str | None) -> datetime:
     return parsed.astimezone(LOCAL_TZ)
 
 
+def try_apply_lineup(
+    client: YahooFantasyClient,
+    lineup_date: str,
+    moves: list[PlannedMove],
+) -> tuple[bool, str | None]:
+    try:
+        client.set_lineup(lineup_date=lineup_date, moves=moves)
+    except HTTPError as exc:
+        if exc.response is not None and exc.response.status_code == 403:
+            return (
+                False,
+                "Yahoo denied roster write access (HTTP 403). Proposed moves were not applied; "
+                "make the changes manually from this report.",
+            )
+        raise
+    return True, None
+
+
 def main() -> int:
     args = parse_args()
     now_local = resolve_now(args.now)
@@ -118,19 +139,28 @@ def main() -> int:
     print()
     print(render_roster(roster))
 
-    applied = args.apply
+    applied = args.apply and not plan.has_changes
+    apply_warning = None
     if args.apply and plan.has_changes:
-        client.set_lineup(lineup_date=roster.lineup_date or config.lineup_date, moves=plan.moves)
-        raw_roster = client.get_team_roster(config.lineup_date)
-        clear_caches()
-        roster = enrich_roster_with_starting_status(
-            raw_roster,
-            date_str=config.lineup_date,
-            verbose=False,
-            ignore_locks=False,
+        applied, apply_warning = try_apply_lineup(
+            client,
+            roster.lineup_date or config.lineup_date,
+            plan.moves,
         )
+        if apply_warning:
+            plan = type(plan)(moves=plan.moves, warnings=[apply_warning, *plan.warnings])
+            print(f"Warning: {apply_warning}")
+        else:
+            raw_roster = client.get_team_roster(config.lineup_date)
+            clear_caches()
+            roster = enrich_roster_with_starting_status(
+                raw_roster,
+                date_str=config.lineup_date,
+                verbose=False,
+                ignore_locks=False,
+            )
 
-    if args.apply:
+    if args.apply and not apply_warning:
         state = update_state_for_lineup(
             state,
             config.lineup_date,
@@ -151,6 +181,7 @@ def main() -> int:
             trigger_label=trigger_label,
             applied=applied,
             moves_count=len(plan.moves),
+            mode_label="ACTION REQUIRED" if apply_warning else None,
         )
         body = build_report_body(
             lineup_date=config.lineup_date,
@@ -158,6 +189,7 @@ def main() -> int:
             applied=applied,
             roster=roster,
             plan=plan,
+            mode_label="ACTION REQUIRED" if apply_warning else None,
         )
         html_body = build_html_report(
             lineup_date=config.lineup_date,
@@ -165,6 +197,7 @@ def main() -> int:
             applied=applied,
             roster=roster,
             plan=plan,
+            mode_label="ACTION REQUIRED" if apply_warning else None,
         )
         send_email_report(config=email_config, subject=subject, body=body, html_body=html_body)
         print("Email report sent.")

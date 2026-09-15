@@ -61,8 +61,9 @@ def build_report_subject(
     trigger_label: str,
     applied: bool,
     moves_count: int,
+    mode_label: str | None = None,
 ) -> str:
-    mode = "APPLIED" if applied else "DRY RUN"
+    mode = mode_label or ("APPLIED" if applied else "DRY RUN")
     team_label = team_name or "Unknown Team"
     same_day_prefix = f"{lineup_date} "
     if trigger_label.startswith(same_day_prefix):
@@ -80,8 +81,9 @@ def build_report_body(
     applied: bool,
     roster: RosterSnapshot,
     plan: LineupPlan,
+    mode_label: str | None = None,
 ) -> str:
-    mode = "APPLIED" if applied else "DRY RUN"
+    mode = mode_label or ("APPLIED" if applied else "DRY RUN")
     return "\n\n".join(
         [
             f"Yahoo Lineup Agent Report\nDate: {lineup_date}\nTrigger: {trigger_label}\nMode: {mode}",
@@ -188,8 +190,9 @@ def build_html_report(
     applied: bool,
     roster: RosterSnapshot,
     plan: LineupPlan,
+    mode_label: str | None = None,
 ) -> str:
-    mode = "APPLIED" if applied else "DRY RUN"
+    mode = mode_label or ("APPLIED" if applied else "DRY RUN")
     bench_out, bench_in = move_map(plan)
     rows_html: list[str] = []
     current_section: str | None = None
