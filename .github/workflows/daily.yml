@@ -5,12 +5,11 @@ permissions:
 
 "on":
   schedule:
-    # Run once an hour during the broad local daytime window.
-    # GitHub cron is UTC, so local-time guards below handle DST accurately.
-    - cron: "30 15-23,0-3 * * *"
-    # Explicit final run for tomorrow's lineup. The workflow validates local
-    # time before acting so this stays correct across DST.
-    - cron: "30 3,4 * * *"
+    # Finish the 2026 season through September 19, then remain dormant until
+    # these schedules are updated for next season. The split handles the UTC
+    # date rollover while preserving the full local daytime/evening window.
+    - cron: "30 15-23 15-19 9 *"
+    - cron: "30 0-4 16-20 9 *"
   workflow_dispatch:
     inputs:
       league_target:
